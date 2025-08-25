@@ -1,5 +1,7 @@
+import 'dart:html' as html; // só funciona na Web
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:http/http.dart' as http;
 
 class JoinPdfsPage extends StatefulWidget {
   const JoinPdfsPage({super.key});
@@ -9,34 +11,32 @@ class JoinPdfsPage extends StatefulWidget {
 }
 
 class _JoinPdfsPageState extends State<JoinPdfsPage> {
-  List<String> selectedFiles = [];
+  List<PlatformFile> selectedFiles = [];
   double progress = 0.0;
   bool isProcessing = false;
   bool canDownload = false;
+  String? downloadUrl;
+
+  // URL do seu backend em Python
+  final String backendUrl = "http://localhost:5000/uploads/pdfs"; // ajuste aqui
 
   Future<void> _pickFiles() async {
     setState(() {
       progress = 0.0;
       isProcessing = true;
       canDownload = false;
+      downloadUrl = null;
     });
 
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['pdf'],
       allowMultiple: true,
+      withData: true, // importante p/ web (pega os bytes)
     );
 
     if (result != null) {
-      selectedFiles = result.paths.whereType<String>().toList();
-
-      // Simula progresso de upload
-      for (int i = 1; i <= 10; i++) {
-        await Future.delayed(const Duration(milliseconds: 100));
-        setState(() {
-          progress = i / 10;
-        });
-      }
+      selectedFiles = result.files;
     }
 
     setState(() {
@@ -53,38 +53,71 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
       canDownload = false;
     });
 
-    // Simula processamento
-    for (int i = 1; i <= 20; i++) {
-      await Future.delayed(const Duration(milliseconds: 100));
-      setState(() {
-        progress = i / 20;
-      });
+    var uri = Uri.parse("$backendUrl/join"); // endpoint Python
+    var request = http.MultipartRequest('POST', uri);
+
+    for (var file in selectedFiles) {
+      if (file.bytes != null) {
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'files',
+            file.bytes!,
+            filename: file.name,
+          ),
+        );
+      }
     }
 
-    setState(() {
-      isProcessing = false;
-      canDownload = true;
-    });
+    var streamedResponse = await request.send();
+
+    if (streamedResponse.statusCode == 200) {
+      // Backend deve retornar o PDF processado diretamente
+      var bytes = await streamedResponse.stream.toBytes();
+
+      // Criar URL temporária para download
+      final blob = html.Blob([bytes]);
+      final url = html.Url.createObjectUrlFromBlob(blob);
+
+      setState(() {
+        isProcessing = false;
+        canDownload = true;
+        downloadUrl = url;
+        progress = 1.0;
+      });
+    } else {
+      setState(() {
+        isProcessing = false;
+        progress = 0.0;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Erro no processamento: ${streamedResponse.statusCode}")),
+      );
+    }
   }
 
   Future<void> _downloadFile() async {
-    if (!canDownload) return;
+    if (downloadUrl == null) return;
 
     setState(() {
       progress = 0.0;
       isProcessing = true;
     });
 
-    // Simula download
+    // Simula progresso de download
     for (int i = 1; i <= 15; i++) {
-      await Future.delayed(const Duration(milliseconds: 100));
+      await Future.delayed(const Duration(milliseconds: 80));
       setState(() {
         progress = i / 15;
       });
     }
 
+    final anchor = html.AnchorElement(href: downloadUrl)
+      ..setAttribute("download", "resultado.pdf")
+      ..click();
+
     setState(() {
       isProcessing = false;
+      progress = 1.0;
     });
 
     ScaffoldMessenger.of(context).showSnackBar(
@@ -106,8 +139,8 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
           Padding(
             padding: const EdgeInsets.all(20),
             child: SizedBox(
-              height: 80,
-              width: 80,
+              height: 90,
+              width: 90,
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -128,7 +161,6 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
 
           const SizedBox(height: 30),
 
-          // Botões de ação
           Wrap(
             spacing: 20,
             runSpacing: 20,
@@ -154,7 +186,6 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
 
           const SizedBox(height: 30),
 
-          // Lista de arquivos selecionados
           if (selectedFiles.isNotEmpty)
             Expanded(
               child: ListView.builder(
@@ -163,7 +194,7 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
                   return ListTile(
                     leading: const Icon(Icons.picture_as_pdf),
                     title: Text(
-                      selectedFiles[index].split('/').last,
+                      selectedFiles[index].name,
                       overflow: TextOverflow.ellipsis,
                     ),
                   );
