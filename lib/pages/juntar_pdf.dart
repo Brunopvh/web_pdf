@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 
+final String BACKEND_URL = "http://localhost:5000/uploads/pdfs";
+
 class JoinPdfsPage extends StatefulWidget {
   const JoinPdfsPage({super.key});
 
@@ -15,17 +17,20 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
   double progress = 0.0;
   bool isProcessing = false;
   bool canDownload = false;
+  bool filesReady = false; // <- controle novo
   String? downloadUrl;
 
+  //******************************************
   // URL do seu backend em Python
-  final String backendUrl = "http://localhost:5000/uploads/pdfs"; // ajuste aqui
+  final String backendUrl = BACKEND_URL; // ajuste aqui
 
   Future<void> _pickFiles() async {
     setState(() {
       progress = 0.0;
-      isProcessing = true;
+      isProcessing = false;
       canDownload = false;
       downloadUrl = null;
+      filesReady = false;
     });
 
     final result = await FilePicker.platform.pickFiles(
@@ -37,15 +42,18 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
 
     if (result != null) {
       selectedFiles = result.files;
-    }
 
-    setState(() {
-      isProcessing = false;
-    });
+      // Verifica se todos têm bytes carregados
+      bool allHaveBytes = selectedFiles.every((f) => f.bytes != null);
+
+      setState(() {
+        filesReady = allHaveBytes && selectedFiles.isNotEmpty;
+      });
+    }
   }
 
   Future<void> _processFiles() async {
-    if (selectedFiles.isEmpty) return;
+    if (!filesReady) return; // segurança extra
 
     setState(() {
       progress = 0.0;
@@ -53,7 +61,7 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
       canDownload = false;
     });
 
-    var uri = Uri.parse("$backendUrl/join"); // endpoint Python
+    var uri = Uri.parse("$backendUrl/join");
     var request = http.MultipartRequest('POST', uri);
 
     for (var file in selectedFiles) {
@@ -71,7 +79,6 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
     var streamedResponse = await request.send();
 
     if (streamedResponse.statusCode == 200) {
-      // Backend deve retornar o PDF processado diretamente
       var bytes = await streamedResponse.stream.toBytes();
 
       // Criar URL temporária para download
@@ -90,7 +97,11 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
         progress = 0.0;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Erro no processamento: ${streamedResponse.statusCode}")),
+        SnackBar(
+          content: Text(
+            "Erro no processamento: ${streamedResponse.statusCode}",
+          ),
+        ),
       );
     }
   }
@@ -111,27 +122,25 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
       });
     }
 
-    final anchor = html.AnchorElement(href: downloadUrl)
-      ..setAttribute("download", "resultado.pdf")
-      ..click();
+    final anchor =
+        html.AnchorElement(href: downloadUrl)
+          ..setAttribute("download", "resultado.pdf")
+          ..click();
 
     setState(() {
       isProcessing = false;
       progress = 1.0;
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Download concluído!")),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text("Download concluído!")));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Juntar PDFs"),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text("Juntar PDFs"), centerTitle: true),
       body: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -145,12 +154,15 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
                 fit: StackFit.expand,
                 children: [
                   CircularProgressIndicator(
-                    value: isProcessing ? progress : 0,
+                    value:
+                        isProcessing ? null : progress, // null = indeterminado
                     strokeWidth: 8,
                   ),
                   Center(
                     child: Text(
-                      isProcessing ? "${(progress * 100).toInt()}%" : "0%",
+                      (!isProcessing && progress > 0)
+                          ? "${(progress * 100).toInt()}%"
+                          : "",
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
@@ -172,7 +184,10 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
                 label: const Text("Selecionar PDFs"),
               ),
               ElevatedButton.icon(
-                onPressed: _processFiles,
+                onPressed:
+                    filesReady && !isProcessing
+                        ? _processFiles
+                        : null, // só habilita quando tudo estiver pronto
                 icon: const Icon(Icons.merge_type),
                 label: const Text("Processar"),
               ),
@@ -188,17 +203,28 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
 
           if (selectedFiles.isNotEmpty)
             Expanded(
-              child: ListView.builder(
-                itemCount: selectedFiles.length,
-                itemBuilder: (context, index) {
-                  return ListTile(
-                    leading: const Icon(Icons.picture_as_pdf),
-                    title: Text(
-                      selectedFiles[index].name,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  );
-                },
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 20),
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey.shade300),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Scrollbar(
+                  thumbVisibility: true,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.all(10),
+                    itemCount: selectedFiles.length,
+                    itemBuilder: (context, index) {
+                      return ListTile(
+                        leading: const Icon(Icons.picture_as_pdf),
+                        title: Text(
+                          selectedFiles[index].name,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    },
+                  ),
+                ),
               ),
             ),
         ],
