@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 final String BACKEND_URL = "http://localhost:5000/uploads/pdfs";
 
+
 class JoinPdfsPage extends StatefulWidget {
   const JoinPdfsPage({super.key});
 
@@ -19,7 +20,7 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
   bool canDownload = false;
   bool filesReady = false; // <- controle novo
   String? downloadUrl;
-
+  final ScrollController _scrollController = ScrollController();
   //******************************************
   // URL do seu backend em Python
   final String backendUrl = BACKEND_URL; // ajuste aqui
@@ -61,7 +62,7 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
       canDownload = false;
     });
 
-    var uri = Uri.parse("$backendUrl/join");
+    var uri = Uri.parse("$BACKEND_URL/join");
     var request = http.MultipartRequest('POST', uri);
 
     for (var file in selectedFiles) {
@@ -138,6 +139,12 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
   }
 
   @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Juntar PDFs"), centerTitle: true),
@@ -210,8 +217,10 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Scrollbar(
+                  controller: _scrollController,
                   thumbVisibility: true,
                   child: ListView.builder(
+                    controller: _scrollController,
                     padding: const EdgeInsets.all(10),
                     itemCount: selectedFiles.length,
                     itemBuilder: (context, index) {
