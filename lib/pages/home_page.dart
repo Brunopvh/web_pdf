@@ -39,6 +39,8 @@ class HomePage extends StatelessWidget {
               onPressed: () {
                 if (option == "Juntar PDFs") {
                   Navigator.pushNamed(context, '/joinPdfs');
+                } else if (option == "Dividir PDFs") {
+                  Navigator.pushNamed(context, '/splitPdfs');
                 }
                 // As outras opções ficam sem ação por enquanto
               },

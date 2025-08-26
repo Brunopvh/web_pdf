@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
-
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 import io
+import zipfile
 #from PyPDF2 import PdfMerger  # exemplo de módulo PyPI para juntar PDFs
 from convert_stream import DocumentPdf, CollectionPagePdf, PdfStream
 
@@ -22,6 +22,36 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ===================== ROTA DIVIDIR PDF =====================
+@app.post("/uploads/pdfs/split")
+async def split_pdf(files: List[UploadFile] = File(...)):
+    
+    stream = PdfStream()
+    stream.clear()
+    for file_pdf in files:
+        current_bytes = await file_pdf.read()
+        doc = DocumentPdf.create_from_bytes(io.BytesIO(current_bytes))
+        stream.add_pages(doc.to_pages())
+        del doc
+        
+    # Criar um ZIP em memória
+    zip_buffer = io.BytesIO()
+    pages = stream.to_document().to_pages()
+    with zipfile.ZipFile(zip_buffer, "w") as zipf:
+        for i, page in enumerate(pages):
+            current_doc = DocumentPdf.create_from_pages([page])
+            current_bytes = current_doc.to_bytes()
+            zipf.writestr(f"page_{i+1}.pdf", current_bytes.getvalue())
+            del current_doc
+            del current_bytes        
+    zip_buffer.seek(0)
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=paginas_divididas.zip"},
+    )
 
 
 @app.post("/uploads/pdfs/join")
