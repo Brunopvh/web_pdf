@@ -1,24 +1,17 @@
-image: cirrusci/flutter:latest
-
-stages:
-  - build
-  - deploy
-
-build_web:
-  stage: build
+# The Docker image that will be used to build your app
+image: cirrusci/flutter:stable
+create-pages:
+  pages:
+    # The folder that contains the files to be exposed at the Page URL
+    publish: public
+  rules:
+    # This ensures that only pushes to the default branch will trigger
+    # a pages deploy
+    - if: $CI_COMMIT_REF_NAME == $CI_DEFAULT_BRANCH
+  # Functions that should be executed before the build script is run
+  before_script:
+    - flutter pub get 
+    - flutter build web
   script:
-    - flutter config --enable-web
-    - flutter build web --release
-  artifacts:
-    paths:
-      - build/web
-
-pages:
-  stage: deploy
-  script:
-    - mv build/web public
-  artifacts:
-    paths:
-      - public
-  only:
-    - main   # ou "master", dependendo do seu branch
+    - flutter pub get 
+    - flutter build web
