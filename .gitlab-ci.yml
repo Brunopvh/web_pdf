@@ -13,4 +13,4 @@ create-pages:
     - flutter pub get 
     - flutter build web
   script:
-    
+    - flutter build web # Coloque o comando aqui    
