@@ -55,7 +55,7 @@ class _SplitPdfsPageState extends State<SplitPdfsPage> {
 
     var uri = Uri.parse("$BACKEND_URL/split");
     var request = http.MultipartRequest('POST', uri);
-
+    print('Enviando arquivos..')
     request.files.add(
       http.MultipartFile.fromBytes(
         'files',
@@ -63,7 +63,7 @@ class _SplitPdfsPageState extends State<SplitPdfsPage> {
         filename: selectedFile!.name,
       ),
     );
-
+    print('Aguardando resposta...');
     var streamedResponse = await request.send();
 
     if (streamedResponse.statusCode == 200) {
@@ -109,9 +109,10 @@ class _SplitPdfsPageState extends State<SplitPdfsPage> {
       });
     }
 
-    final anchor = html.AnchorElement(href: downloadUrl)
-      ..setAttribute("download", "paginas_divididas.zip")
-      ..click();
+    final anchor =
+        html.AnchorElement(href: downloadUrl)
+          ..setAttribute("download", "paginas_divididas.zip")
+          ..click();
 
     setState(() {
       isProcessing = false;

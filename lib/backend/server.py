@@ -7,7 +7,7 @@ from typing import List
 import io
 import zipfile
 #from PyPDF2 import PdfMerger  # exemplo de módulo PyPI para juntar PDFs
-from convert_stream import DocumentPdf, CollectionPagePdf, PdfStream
+from convert_stream import DocumentPdf, CollectionPagePdf, PdfStream, PageDocumentPdf
 
 
 
@@ -27,17 +27,17 @@ app.add_middleware(
 @app.post("/uploads/pdfs/split")
 async def split_pdf(files: List[UploadFile] = File(...)):
     
-    stream = PdfStream()
-    stream.clear()
+    print('Adicionando arquivos PDFs')
+    pages: list[PageDocumentPdf] = []
     for file_pdf in files:
         current_bytes = await file_pdf.read()
         doc = DocumentPdf.create_from_bytes(io.BytesIO(current_bytes))
-        stream.add_pages(doc.to_pages())
+        pages.extend(doc.to_pages())
         del doc
         
     # Criar um ZIP em memória
     zip_buffer = io.BytesIO()
-    pages = stream.to_document().to_pages()
+    print('Gravando arquivos')
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
         for i, page in enumerate(pages):
             current_doc = DocumentPdf.create_from_pages([page])
@@ -46,7 +46,7 @@ async def split_pdf(files: List[UploadFile] = File(...)):
             del current_doc
             del current_bytes        
     zip_buffer.seek(0)
-
+    print('Enviando resposta')
     return StreamingResponse(
         zip_buffer,
         media_type="application/zip",
