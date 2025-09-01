@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:web_pdf/pages/home_page.dart';
 import 'package:web_pdf/pages/juntar_pdf.dart';
 import 'package:web_pdf/pages/dividir_pdf.dart';
-
+// Versão Web
 void main() {
   runApp(const MyApp());
 }
