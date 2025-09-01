@@ -16,6 +16,9 @@ create-pages:
     - flutter --version
     - flutter pub get
     - flutter build web
+    # Adicionando a solução
+    - mkdir public
+    - mv build/web/* public
   artifacts:
     paths:
       - build/web
