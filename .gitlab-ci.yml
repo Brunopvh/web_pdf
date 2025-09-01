@@ -1,0 +1,24 @@
+image: cirrusci/flutter:latest
+
+stages:
+  - build
+  - deploy
+
+build_web:
+  stage: build
+  script:
+    - flutter config --enable-web
+    - flutter build web --release
+  artifacts:
+    paths:
+      - build/web
+
+pages:
+  stage: deploy
+  script:
+    - mv build/web public
+  artifacts:
+    paths:
+      - public
+  only:
+    - main   # ou "master", dependendo do seu branch
