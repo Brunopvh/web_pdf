@@ -55,7 +55,7 @@ class _SplitPdfsPageState extends State<SplitPdfsPage> {
 
     var uri = Uri.parse("$BACKEND_URL/split");
     var request = http.MultipartRequest('POST', uri);
-    print('Enviando arquivos..')
+    print('Enviando arquivos..');
     request.files.add(
       http.MultipartFile.fromBytes(
         'files',
