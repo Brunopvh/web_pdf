@@ -1,5 +1,5 @@
 # The Docker image that will be used to build your app
-image: cirrusci/flutter:stable
+image: cirrusci/flutter:3.16.5
 create-pages:
   pages:
     # The folder that contains the files to be exposed at the Page URL
@@ -13,5 +13,4 @@ create-pages:
     - flutter pub get 
     - flutter build web
   script:
-    - flutter pub get 
-    - flutter build web
+    
