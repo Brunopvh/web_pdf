@@ -6,7 +6,7 @@ stages:
   - deploy
 
 # Define o job 'create-pages' que pertence ao estágio 'deploy'
-create-pages:
+pages:   # <- precisa se chamar "pages" (nome reservado do GitLab Pages)
   stage: deploy
   script:
     - apt-get update
@@ -15,12 +15,10 @@ create-pages:
     - export PATH="$PATH:$(pwd)/flutter/bin"
     - flutter --version
     - flutter pub get
-    - flutter build web
-    # Adicionando a solução
-    - mkdir public
-    - mv build/web/* public
+    - flutter build web --release
+    - mv build/web public   # o GitLab Pages serve somente a pasta "public"
   artifacts:
     paths:
-      - build/web
+      - public
   only:
     - main
