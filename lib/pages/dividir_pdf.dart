@@ -2,8 +2,9 @@ import 'dart:html' as html; // só funciona na Web
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:web_pdf/pages/urls.dart';
 
-final String BACKEND_URL = "http://127.0.0.1:5000/uploads/pdfs";
+//final String BACKEND_URL = "http://127.0.0.1:5000/uploads/pdfs";
 
 class SplitPdfsPage extends StatefulWidget {
   const SplitPdfsPage({super.key});
