@@ -4,7 +4,9 @@ import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 import 'package:web_pdf/pages/urls.dart';
 
-const String BACKEND_URL = "http://brunochaves.pythonanywhere.com/uploads/pdfs";
+// uploads/pdfs
+var URL_SPLIT = Uri.parse("$BACKEND_URL/uploads/pdfs/split");
+
 
 class SplitPdfsPage extends StatefulWidget {
   const SplitPdfsPage({super.key});
@@ -53,9 +55,8 @@ class _SplitPdfsPageState extends State<SplitPdfsPage> {
       isProcessing = true;
       canDownload = false;
     });
-
-    var uri = Uri.parse("$BACKEND_URL/split");
-    var request = http.MultipartRequest('POST', uri);
+    
+    var request = http.MultipartRequest('POST', URL_SPLIT);
     print('Enviando arquivos..');
     request.files.add(
       http.MultipartFile.fromBytes(

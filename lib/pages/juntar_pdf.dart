@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:web_pdf/pages/urls.dart';
 
 //final String BACKEND_URL = "http://localhost:5000/uploads/pdfs";
-
+var URL_JOIN = Uri.parse("$BACKEND_URL//uploads/pdfs/join");
 
 class JoinPdfsPage extends StatefulWidget {
   const JoinPdfsPage({super.key});
@@ -63,8 +63,8 @@ class _JoinPdfsPageState extends State<JoinPdfsPage> {
       canDownload = false;
     });
 
-    var uri = Uri.parse("$BACKEND_URL/join");
-    var request = http.MultipartRequest('POST', uri);
+    
+    var request = http.MultipartRequest('POST', URL_JOIN);
 
     for (var file in selectedFiles) {
       if (file.bytes != null) {

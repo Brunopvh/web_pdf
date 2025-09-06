@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-
+"""
+ARQUIVOS:
+    - PROJETO: web_pdf
+    - PASTA BACKEND NO PROJETO: web_pdf/lib/backend
+    - SERVIDOR: web_pdf/lib/backend/server.py
+    - SCRIPT QUE CHAMA O SERVIDOR COM VENV: web_pdf/lib/backend/run.sh
+    
+    - FLUTTER FRONTEND: web_pdf/lib/*.dart
+    
+"""
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
