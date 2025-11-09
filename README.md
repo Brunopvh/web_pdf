@@ -1,16 +1,25 @@
-# web_pdf
 
-A new Flutter project.
+# 🧩 Web Convert - converter e organizar documentos
 
-## Getting Started
+Aplicação Flutter + servidor Python que permite **filtrar dados de planilhas Excel** com base em uma coluna e exportar os resultados para um novo arquivo `.xlsx`.
 
-This project is a starting point for a Flutter application.
+---
 
-A few resources to get you started if this is your first Flutter project:
+## 🚀 Funcionalidades
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- Seleção de arquivo Excel (.xlsx)  
+- Filtro de dados digitando o nome da coluna desejada  
+- Exportação dos dados filtrados  
+- Interface simples e funcional  
+- Integração com servidor Python via API
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+---
+
+## ⚙️ Instalação e Execução
+
+### 🔹 1. Clonar o repositório
+
+```bash
+git https://gitlab.com/bschaves/web_pdf.git
+cd web_pdf
+

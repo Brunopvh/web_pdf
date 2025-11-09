@@ -1,0 +1,5 @@
+{
+    "ip_server": "192.168.100.47",
+    "rt_join_pdf": "uploads/pdf/join",
+    "rt_split_pdf": "uploads/pdf/split"
+}
