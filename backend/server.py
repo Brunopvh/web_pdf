@@ -9,7 +9,6 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import UploadFile, File
 from fastapi.responses import JSONResponse
-from fastapi import APIRouter
 from fastapi import Form
 import base64
 from typing import Any
@@ -22,10 +21,10 @@ import pandas as pd
 import tempfile
 import threading
 from organize_stream import (
-    DocumentFinder, DocumentTextExtract, OrganizeInnerData,
-    OrganizeInnerText, Filter, FilterData
+    OrganizeInnerData, OrganizeInnerText, FilterText, FilterData,
+    LibDigitalized
 )
-
+from sheet_stream import ReadFileSheet, LibSheet
 #from fastapi.responses import StreamingResponse, JSONResponse
 
 SERVER_FILE = os.path.abspath(os.path.realpath(__file__))
@@ -67,6 +66,63 @@ def get_json_info(file_json: str = FILE_CONF) -> dict[str, Any] | None:
 
 route_info = get_json_info()
 print(route_info)
+
+
+def create_progress() -> dict[str, Any]:
+    return {
+        "current": 0,
+        "total": 0,
+        "done": False,
+        "zip_path": None,
+    }
+
+
+# Estado global simples
+progress_data: dict[str, Any] = create_progress()
+
+# =============== ROTA PROGRESSO ==================
+@app.get("/progress")
+async def get_progress():
+    if progress_data["total"]:
+        pbar = ((progress_data["current"] + 1) / progress_data["total"]) * 100
+    else:
+        pbar = 0
+    return JSONResponse({
+        "current": progress_data["current"],
+        "total": progress_data["total"],
+        "progress": pbar,
+        "done": progress_data["done"],
+    })
+
+
+# =============== WORKER ==================
+def worker_progress(files: list[str]):
+    # Criar diretório temporário para saída
+    temp_dir = tempfile.mkdtemp()
+    _output_zip = os.path.join(temp_dir, "resultado.zip")
+    pdf_stream = cs.PdfStream()
+
+    try:
+        progress_data['total'] = len(files)
+        with zipfile.ZipFile(_output_zip, "w") as zipf:
+            for idx, path in enumerate(files):
+                progress_data["current"] = idx
+                with open(path, "rb") as fp:
+                    raw_bytes = fp.read()
+                im = cs.ImageObject.create_from_bytes(raw_bytes)
+                pdf_stream.add_image(im)
+                doc = pdf_stream.to_document()
+                pdf_bytes: io.BytesIO = doc.to_bytes()
+                filename = f"documento_{idx}.pdf"
+                zipf.writestr(filename, pdf_bytes.getvalue())
+                pdf_stream.clear()
+                del doc
+        # finalizou
+        progress_data.update({"done": True, "zip_path": _output_zip})
+
+    except Exception as e:
+        progress_data.update({"done": True, "zip_path": None})
+        print(f"[ERRO] Worker falhou: {e}")
 
 
 # =================== ROTA PARA OCR EM IMAGENS =====================
@@ -190,49 +246,6 @@ async def join_pdfs(files: list[UploadFile] = File(...)):
 # ========= ROTA CONVERTER IMAGENS EM PDF ================
 
 
-def create_progress() -> dict[str, Any]:
-    return {
-        "current": 0, 
-        "total": 0, 
-        "done": False, 
-        "zip_path": None,
-    }
-
-
-# Estado global simples
-progress_data: dict[str, Any] = create_progress()
-
-
-# =============== WORKER ==================
-def worker_progress(files: list[str]):
-    # Criar diretório temporário para saída
-    temp_dir = tempfile.mkdtemp()
-    _output_zip = os.path.join(temp_dir, "resultado.zip")
-    pdf_stream = cs.PdfStream()
-    
-    try:
-        progress_data['total'] = len(files)
-        with zipfile.ZipFile(_output_zip, "w") as zipf:
-            for idx, path in enumerate(files):
-                progress_data["current"] = idx
-                with open(path, "rb") as fp:
-                    raw_bytes = fp.read()
-                im = cs.ImageObject.create_from_bytes(raw_bytes)
-                pdf_stream.add_image(im)
-                doc = pdf_stream.to_document()
-                pdf_bytes: io.BytesIO = doc.to_bytes()
-                filename = f"documento_{idx}.pdf"
-                zipf.writestr(filename, pdf_bytes.getvalue())
-                pdf_stream.clear()
-                del doc
-        # finalizou
-        progress_data.update({"done": True, "zip_path": _output_zip})
-
-    except Exception as e:
-        progress_data.update({"done": True, "zip_path": None})
-        print(f"[ERRO] Worker falhou: {e}")
-
-
 # =============== ROTA PROCESSAR IMAGENS ==================
 @app.post(f"/{route_info['rt_imgs_to_pdf']}")
 async def process_images(files: list[UploadFile] = File(...)):
@@ -249,21 +262,6 @@ async def process_images(files: list[UploadFile] = File(...)):
     thread = threading.Thread(target=worker_progress, args=(image_files,))
     thread.start()
     return {"message": "Processamento iniciado"}
-
-
-# =============== ROTA PROGRESSO ==================
-@app.get("/progress")
-async def get_progress():
-    if progress_data["total"]:
-        pbar = ((progress_data["current"] + 1) / progress_data["total"]) * 100
-    else:
-        pbar = 0
-    return JSONResponse({
-        "current": progress_data["current"],
-        "total": progress_data["total"],
-        "progress": pbar,
-        "done": progress_data["done"],
-    })
 
 
 # =============== ROTA DOWNLOAD ==================
@@ -291,8 +289,7 @@ async def organize_documents_with_sheet(
             column_name: str = Form(default=None),  # NOVO
         ):
     """
-    Rota unificada para processar PDFs, imagens e padrão (texto ou XLSX).
-    Retorna um ZIP com os resultados.
+    Rota unificada para processar PDFs, imagens e renomear com base em uma planilha Excel.
     """
 
     temp_dir: str = tempfile.mkdtemp()
@@ -300,6 +297,8 @@ async def organize_documents_with_sheet(
     list_files: list[UploadFile] = []
     list_files.extend(pdfs)
     list_files.extend(images)
+    sheet_bytes: bytes = await file_sheet.read()
+    src_df: pd.DataFrame = ReadFileSheet(io.BytesIO(sheet_bytes), lib_sheet=LibSheet.EXCEL).get_dataframe()
     try:
         # Salvar todos os arquivos recebidos
         saved_files: list[str] = []
@@ -311,19 +310,15 @@ async def organize_documents_with_sheet(
             with open(file_path, "wb") as f:
                 f.write(content)
             saved_files.append(file_path)
-
-        content: bytes = await file_sheet.read()
-        xlsx_path = os.path.join(temp_dir, file_sheet.filename)
-        with open(xlsx_path, "wb") as f:
-            f.write(content)
         total_files = len(saved_files)
         progress_data["total"] = total_files
         
         src_dir: sp.Directory = sp.Directory(temp_dir)
-        src_df = pd.read_excel(xlsx_path)
-        filter_data = FilterData(src_dir, col_find=column_name, col_new_name=column_name)
-        org = OrganizeInnerData(src_df, filter_data)
-        org.add_dir_pdf(src_dir, apply_ocr=False)
+        filter_data = FilterData(
+            src_df, col_find=column_name, col_new_name=column_name, cols_in_name=[]
+        )
+        org = OrganizeInnerData(src_dir, filters=filter_data)
+        org.add_dir_pdf(src_dir, apply_ocr=True)
         org.add_dir_image(src_dir)
         progress_data.update({"done": True})
         
@@ -372,12 +367,16 @@ async def organize_documents_with_pattern(
         return JSONResponse({"error": str(e)}, status_code=500)
 
     temp_dir: str = tempfile.mkdtemp()
+    src_dir: sp.Directory = sp.Directory(temp_dir)
+    src_dir.mkdir()
     progress_data.update({"current": 0, "total": 0, "done": False, "zip_path": None})
     list_files: list[UploadFile] = []
     list_files.extend(pdfs)
     list_files.extend(images)
+
     try:
         # Salvar todos os arquivos recebidos
+        print(f'Salvando arquivos no disco')
         saved_files: list[str] = []
         for current_file in list_files:
             if current_file is None:
@@ -387,17 +386,35 @@ async def organize_documents_with_pattern(
             with open(file_path, "wb") as f:
                 f.write(content)
             saved_files.append(file_path)
-
         total_files = len(saved_files)
         progress_data["total"] = total_files
+    except Exception as err:
+        progress_data.update({"done": True, "zip_path": None})
+        print(f"DEBUG: Falha {err}")
+        return JSONResponse({"error": str(err)}, status_code=500)
 
-        src_dir: sp.Directory = sp.Directory(temp_dir)
-        filter_text = Filter(pattern, src_dir)
-        org = OrganizeInnerText(filter_text)
-        org.add_dir_pdf(src_dir, apply_ocr=False)
-        org.add_dir_image(src_dir)
+
+    try:
+        print('Filtrando Texto')
+        filter_text = FilterText(pattern)
+        org_text = OrganizeInnerText(
+            src_dir, filters=filter_text, lib_digitalized=LibDigitalized.GENERIC
+        )
+        input_files = sp.InputFiles(src_dir)
+        files_pdf = input_files.get_files(file_type=sp.LibraryDocs.PDF)
+        files_image = input_files.get_files(file_type=sp.LibraryDocs.IMAGE)
+        if files_pdf is None:
+            raise Exception("Nenhum documento foi encontrado")
+        #for f in files_pdf:
+        #    org_text.add_document(cs.DocumentPdf(f), apply_ocr=False)
+        for im in files_image:
+            org_text.add_image(cs.ImageObject(im))
         progress_data.update({"done": True})
-
+    except Exception as err:
+        progress_data.update({"done": True, "zip_path": None})
+        print(f"DEBUG: Ao renomear documentos {err}")
+        return JSONResponse({"error": str(err)}, status_code=500)
+    try:
         # Gerar listas de arquivos PDF e imagens processados
         input_final_files = sp.InputFiles(sp.Directory(temp_dir))
         docs_list: list[sp.File] = input_final_files.get_files(file_type=sp.LibraryDocs.PDF)
