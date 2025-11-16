@@ -21,8 +21,10 @@ import pandas as pd
 import tempfile
 import threading
 from organize_stream import (
-    OrganizeInnerData, OrganizeInnerText, FilterText, FilterData,
-    LibDigitalized
+    FilterText, FilterData, LibDigitalized
+)
+from organize_stream.document.name_files import (
+    NameFileInnerTable, ExtractNameInnerData, ExtractNameInnerText
 )
 from sheet_stream import ReadFileSheet, LibSheet
 #from fastapi.responses import StreamingResponse, JSONResponse
@@ -314,19 +316,27 @@ async def organize_documents_with_sheet(
         progress_data["total"] = total_files
         
         src_dir: sp.Directory = sp.Directory(temp_dir)
+        input_files = sp.InputFiles(src_dir)
+        __files_pdf = input_files.pdfs
+        __files_images = input_files.images
         filter_data = FilterData(
             src_df, col_find=column_name, col_new_name=column_name, cols_in_name=[]
         )
-        org = OrganizeInnerData(src_dir, filters=filter_data)
-        org.add_dir_pdf(src_dir, apply_ocr=True)
-        org.add_dir_image(src_dir)
+        name_finder = ExtractNameInnerData(src_dir, filters=filter_data)
+        for img in __files_images:
+            name_finder.add_table(
+                name_finder.extractor.read_image(img)
+            )
+        for file_pdf in __files_pdf:
+            name_finder.add_table(
+                name_finder.extractor.read_document(file_pdf)
+            )
         progress_data.update({"done": True})
         
         # Gerar uma lista de arquivos PDF
-        input_files = sp.InputFiles(sp.Directory(temp_dir))
-        docs_list: list[sp.File] = input_files.get_files(file_type=sp.LibraryDocs.PDF)
+        docs_list: list[sp.File] = input_files.pdfs
         # Gerar uma lista de imagens.
-        docs_imgs: list[sp.File] = input_files.get_files(file_type=sp.LibraryDocs.IMAGE)
+        docs_imgs: list[sp.File] = input_files.images
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w") as zipf:
             for file_pdf in docs_list:
@@ -366,80 +376,48 @@ async def organize_documents_with_pattern(
         e = "O parâmetro 'pattern' é obrigatório nesta rota."
         return JSONResponse({"error": str(e)}, status_code=500)
 
-    temp_dir: str = tempfile.mkdtemp()
-    src_dir: sp.Directory = sp.Directory(temp_dir)
-    src_dir.mkdir()
+    #temp_dir: str = tempfile.mkdtemp()
     progress_data.update({"current": 0, "total": 0, "done": False, "zip_path": None})
-    list_files: list[UploadFile] = []
-    list_files.extend(pdfs)
-    list_files.extend(images)
 
+    # Objeto para organizar os arquivos
+    filter_text = FilterText(pattern)
+    name_finder = NameFileInnerTable(filters=filter_text)
+    total_files = len(pdfs) + len(images)
+    # Renomear os arquivos recebidos usando os bytes.
     try:
-        # Salvar todos os arquivos recebidos
-        print(f'Salvando arquivos no disco')
-        saved_files: list[str] = []
-        for current_file in list_files:
-            if current_file is None:
+        # Processar e renomear as imagens.
+        image_file: UploadFile
+        for image_file in images:
+            if image_file is None:
                 continue
-            content: bytes = await current_file.read()
-            file_path = os.path.join(temp_dir, current_file.filename)
-            with open(file_path, "wb") as f:
-                f.write(content)
-            saved_files.append(file_path)
-        total_files = len(saved_files)
+            image_bytes: bytes = await image_file.read()
+            name_finder.add_image(image_bytes)
+        progress_data['current'] = 50
+        for file_pdf in pdfs:
+            if file_pdf is None:
+                continue
+            pdf_bytes: bytes = await file_pdf.read()
+            name_finder.add_document(pdf_bytes)
         progress_data["total"] = total_files
     except Exception as err:
         progress_data.update({"done": True, "zip_path": None})
         print(f"DEBUG: Falha {err}")
         return JSONResponse({"error": str(err)}, status_code=500)
 
-
+    # Gravar os dados em bytes ZIP.
     try:
-        print('Filtrando Texto')
-        filter_text = FilterText(pattern)
-        org_text = OrganizeInnerText(
-            src_dir, filters=filter_text, lib_digitalized=LibDigitalized.GENERIC
-        )
-        input_files = sp.InputFiles(src_dir)
-        files_pdf = input_files.get_files(file_type=sp.LibraryDocs.PDF)
-        files_image = input_files.get_files(file_type=sp.LibraryDocs.IMAGE)
-        if files_pdf is None:
-            raise Exception("Nenhum documento foi encontrado")
-        #for f in files_pdf:
-        #    org_text.add_document(cs.DocumentPdf(f), apply_ocr=False)
-        for im in files_image:
-            org_text.add_image(cs.ImageObject(im))
-        progress_data.update({"done": True})
-    except Exception as err:
-        progress_data.update({"done": True, "zip_path": None})
-        print(f"DEBUG: Ao renomear documentos {err}")
-        return JSONResponse({"error": str(err)}, status_code=500)
-    try:
-        # Gerar listas de arquivos PDF e imagens processados
-        input_final_files = sp.InputFiles(sp.Directory(temp_dir))
-        docs_list: list[sp.File] = input_final_files.get_files(file_type=sp.LibraryDocs.PDF)
-        docs_imgs: list[sp.File] = input_final_files.get_files(file_type=sp.LibraryDocs.IMAGE)
-
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w") as zipf:
-            for file_pdf in docs_list:
-                _pdf_bytes: bytes = file_pdf.path.read_bytes()
-                zipf.writestr(file_pdf.basename(), _pdf_bytes)
-
-            for file_img in docs_imgs:
-                _img_bytes: bytes = file_img.path.read_bytes()
-                zipf.writestr(file_img.basename(), _img_bytes)
-        zip_buffer.seek(0)
-
-        # Retornar o ZIP finalizado
-        return StreamingResponse(
-            zip_buffer,
-            media_type="application/zip",
-            headers={"Content-Disposition": "attachment; filename=resultado_final.zip"},
-        )
-
+        zip_bytes: io.BytesIO | None = name_finder.export_keys_to_zip()
+        zip_bytes.seek(0)
     except Exception as e:
         progress_data.update({"done": True, "zip_path": None})
         print(f"[ERRO] Falha ao processar documentos: {e}")
         return JSONResponse({"error": str(e)}, status_code=500)
+    else:
+        # Retornar o ZIP para download.
+        return StreamingResponse(
+            zip_bytes,
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=resultado_final.zip"},
+        )
+
 
