@@ -11,6 +11,8 @@ from fastapi import UploadFile, File
 from fastapi.responses import JSONResponse
 from fastapi import Form
 import base64
+from pydantic import BaseModel
+
 from typing import Any
 import io
 import zipfile
@@ -20,6 +22,7 @@ import soup_files as sp
 import pandas as pd
 import tempfile
 import threading
+
 from organize_stream import (
     FilterText, FilterData, LibDigitalized
 )
@@ -27,7 +30,7 @@ from organize_stream.document.name_files import (
     NameFileInnerTable, ExtractNameInnerData, ExtractNameInnerText
 )
 from sheet_stream import ReadFileSheet, LibSheet
-#from fastapi.responses import StreamingResponse, JSONResponse
+
 
 SERVER_FILE = os.path.abspath(os.path.realpath(__file__))
 DIR_ROOT = os.path.abspath(os.path.join(os.path.dirname(SERVER_FILE), '..'))
@@ -283,56 +286,79 @@ async def download_result():
 
 # ===================== ROTA UNIFICADA PROCESSAR DOCUMENTOS =====================
 
+class FileItem(BaseModel):
+    filename: str
+    bytes_base64: str
+
+
+class OrganizePayload(BaseModel):
+    text: str | None = None
+    list_pdfs: list[FileItem] = []
+    list_images: list[FileItem] = []
+    sheet: FileItem = None
+    column_text: str = None
+
+
 @app.post(f"/{route_info['rt_process_docs']}")
 async def organize_documents_with_sheet(
-            pdfs: list[UploadFile] = File(default=[]),
-            images: list[UploadFile] = File(default=[]),
-            file_sheet: UploadFile = File(default=None),
-            column_name: str = Form(default=None),  # NOVO
+            payload: OrganizePayload
         ):
     """
-    Rota unificada para processar PDFs, imagens e renomear com base em uma planilha Excel.
+    Rota unificada para processar PDFs, imagens e renomear com base em planilha Excel.
     """
+    temp_dir: sp.Directory = sp.Directory(tempfile.mkdtemp())
+    temp_dir.mkdir()
+    total_files = len(payload.list_pdfs) + len(payload.list_images)
+    progress_data.update({"current": 0, "total": total_files, "done": False, "zip_path": None})
 
-    temp_dir: str = tempfile.mkdtemp()
-    progress_data.update({"current": 0, "total": 0, "done": False, "zip_path": None})
-    list_files: list[UploadFile] = []
-    list_files.extend(pdfs)
-    list_files.extend(images)
-    sheet_bytes: bytes = await file_sheet.read()
-    src_df: pd.DataFrame = ReadFileSheet(io.BytesIO(sheet_bytes), lib_sheet=LibSheet.EXCEL).get_dataframe()
+    f: FileItem
     try:
-        # Salvar todos os arquivos recebidos
-        saved_files: list[str] = []
-        for current_file in list_files:
-            if current_file is None:
-                continue
-            content: bytes = await current_file.read()
-            file_path = os.path.join(temp_dir, current_file.filename)
-            with open(file_path, "wb") as f:
-                f.write(content)
-            saved_files.append(file_path)
-        total_files = len(saved_files)
-        progress_data["total"] = total_files
-        
-        src_dir: sp.Directory = sp.Directory(temp_dir)
-        input_files = sp.InputFiles(src_dir)
+        pdf_bytes_list: list[tuple[str, bytes]] = [
+            (f.filename, base64.b64decode(f.bytes_base64)) for f in payload.list_pdfs
+        ]
+
+        progress_data['current'] = len(pdf_bytes_list)
+        image_bytes_list: list[tuple[str, bytes]] = [
+            (f.filename, base64.b64decode(f.bytes_base64)) for f in payload.list_images
+        ]
+        file_sheet: bytes = base64.b64decode(payload.sheet.bytes_base64)
+        column_sheet: str = payload.column_text
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    else:
+        for f in pdf_bytes_list:
+            output_path = temp_dir.join_file(f[0])
+            with open(output_path.absolute(), "wb") as out_file:
+                out_file.write(f[1])
+
+        for f in image_bytes_list:
+            output_path = temp_dir.join_file(f[0])
+            with open(output_path.absolute(), "wb") as out_file:
+                out_file.write(f[1])
+
+    progress_data["current"] = total_files
+    input_files = sp.InputFiles(temp_dir)
+    try:
+        src_df: pd.DataFrame = ReadFileSheet(io.BytesIO(file_sheet), lib_sheet=LibSheet.EXCEL).get_dataframe()
+        progress_data["current"] = 0
         __files_pdf = input_files.pdfs
         __files_images = input_files.images
         filter_data = FilterData(
-            src_df, col_find=column_name, col_new_name=column_name, cols_in_name=[]
+            src_df, col_find=column_sheet, col_new_name=column_sheet, cols_in_name=[]
         )
-        name_finder = ExtractNameInnerData(src_dir, filters=filter_data)
+        name_finder = ExtractNameInnerData(temp_dir, filters=filter_data)
+
         for img in __files_images:
             name_finder.add_table(
                 name_finder.extractor.read_image(img)
             )
+
+        progress_data["current"] = len(__files_images)
         for file_pdf in __files_pdf:
             name_finder.add_table(
                 name_finder.extractor.read_document(file_pdf)
             )
-        progress_data.update({"done": True})
-        
+
         # Gerar uma lista de arquivos PDF
         docs_list: list[sp.File] = input_files.pdfs
         # Gerar uma lista de imagens.
@@ -346,7 +372,9 @@ async def organize_documents_with_sheet(
             for file_img in docs_imgs:
                 _img_bytes: bytes = file_img.path.read_bytes()
                 zipf.writestr(file_img.basename(), _img_bytes)
+
         zip_buffer.seek(0)
+        progress_data.update({"done": True})
 
         # Retornar o ZIP finalizado
         return StreamingResponse(
@@ -354,7 +382,6 @@ async def organize_documents_with_sheet(
             media_type="application/zip",
             headers={"Content-Disposition": "attachment; filename=filtrado_com_tabela.zip"},
         )
-
     except Exception as e:
         progress_data.update({"done": True, "zip_path": None})
         print(f"[ERRO] Falha ao processar documentos: {e}")
@@ -363,15 +390,26 @@ async def organize_documents_with_sheet(
 
 @app.post(f"/{route_info['rt_process_pattern']}")
 async def organize_documents_with_pattern(
-            pdfs: list[UploadFile] = File(default=[]),
-            images: list[UploadFile] = File(default=[]),
-            pattern: str = Form(default=None),  # padrão de texto
+            payload: OrganizePayload
         ):
     """
     Rota alternativa usada quando o usuário digita um padrão de texto
     ao invés de enviar planilha XLSX e nome de coluna.
     Retorna um ZIP com os arquivos processados.
     """
+    f: FileItem
+    try:
+        pdf_bytes_list: list[tuple[str, bytes]] = [
+            (f.filename, base64.b64decode(f.bytes_base64)) for f in payload.list_pdfs
+        ]
+
+        image_bytes_list: list[tuple[str, bytes]] = [
+            (f.filename, base64.b64decode(f.bytes_base64)) for f in payload.list_images
+        ]
+        pattern: str = payload.text
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+
     if not pattern:
         e = "O parâmetro 'pattern' é obrigatório nesta rota."
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -382,23 +420,24 @@ async def organize_documents_with_pattern(
     # Objeto para organizar os arquivos
     filter_text = FilterText(pattern)
     name_finder = NameFileInnerTable(filters=filter_text)
-    total_files = len(pdfs) + len(images)
+    total_files = len(pdf_bytes_list) + len(image_bytes_list)
     # Renomear os arquivos recebidos usando os bytes.
     try:
         # Processar e renomear as imagens.
-        image_file: UploadFile
-        for image_file in images:
+        image_file: tuple[str, bytes]
+        for image_file in image_bytes_list:
             if image_file is None:
                 continue
-            image_bytes: bytes = await image_file.read()
-            name_finder.add_image(image_bytes)
+            name_finder.add_image(image_file[1])
         progress_data['current'] = 50
-        for file_pdf in pdfs:
+
+        file_pdf: tuple[str, bytes]
+        for file_pdf in pdf_bytes_list:
             if file_pdf is None:
                 continue
-            pdf_bytes: bytes = await file_pdf.read()
-            name_finder.add_document(pdf_bytes)
+            name_finder.add_document(file_pdf[1])
         progress_data["total"] = total_files
+
     except Exception as err:
         progress_data.update({"done": True, "zip_path": None})
         print(f"DEBUG: Falha {err}")

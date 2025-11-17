@@ -115,59 +115,65 @@ class _OrganizePageState extends State<OrganizePage> {
       String rtProcessDocs = jsonIp["rt_process_docs"];
 
       final hasSheet = xlsxFile != null;
-      final uri = hasSheet
+      Uri uriToSend = hasSheet
           ? Uri.parse('$ipServer/${jsonIp["rt_process_docs"]}')
           : Uri.parse('$ipServer/${jsonIp["rt_process_pattern"]}');
 
-      var request = http.MultipartRequest("POST", uri);
+      var request = http.MultipartRequest("POST", uriToSend);
 
-      // Adicionar PDFs e imagens
-      for (final file in [...pdfFiles, ...imageFiles]) {
-        if (kIsWeb) {
-          request.files.add(http.MultipartFile.fromBytes(
-            file.extension == "pdf" ? 'pdfs' : 'images',
-            file.bytes!,
-            filename: file.name,
-          ));
-        } else {
-          request.files.add(await http.MultipartFile.fromPath(
-            file.extension == "pdf" ? 'pdfs' : 'images',
-            file.path!,
-          ));
-        }
+      // PARA PDFS
+      final listPdfsJson = <Map<String, dynamic>>[];
+      for (final file in pdfFiles) {
+        final bytes = kIsWeb ? file.bytes! : await File(file.path!).readAsBytes();
+        listPdfsJson.add({
+          "filename": file.name,
+          "bytes_base64": base64Encode(bytes),
+        });
       }
 
-      // XLSX ou padrão
+      // PARA IMAGENS
+      final listImagesJson = <Map<String, dynamic>>[];
+      for (final file in imageFiles) {
+        final bytes = kIsWeb ? file.bytes! : await File(file.path!).readAsBytes();
+        listImagesJson.add({
+          "filename": file.name,
+          "bytes_base64": base64Encode(bytes),
+        });
+      }
+
+      // Inserir planilha e nome da coluna dentro do JSON
+      String? sheetBase64;
       if (xlsxFile != null) {
-        if (kIsWeb) {
-          request.files.add(http.MultipartFile.fromBytes(
-              'file_sheet', xlsxFile!.bytes!,
-              filename: xlsxFile!.name));
-        } else {
-          request.files
-              .add(await http.MultipartFile.fromPath('file_sheet', xlsxFile!.path!));
-        }
+        final bytes = kIsWeb ? xlsxFile!.bytes! : await File(xlsxFile!.path!).readAsBytes();
+        sheetBase64 = base64Encode(bytes);
       }
 
-      // Envia o nome da coluna associada à planilha
-      request.fields['column_name'] = columnController.text;
-      // Envia o padrão textual caso não haja planilha
-      if (!hasSheet) {
-        request.fields['pattern'] = patternController.text;
-      }
+      // JSON FINAL
+      final payload = {
+        "text": patternController.text,
+        "list_pdfs": listPdfsJson,
+        "list_images": listImagesJson,
+        "sheet": sheetBase64 ?? "",     // sempre enviado
+        "column_text": columnController.text, // sempre enviado
+      };
 
-      // Envia requisição e aguarda resposta completa
-      final streamedResponse = await request.send();
+      // ENVIAR AO SERVER
+      final response = await http.post(
+        uriToSend,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode(payload),
+      );
 
-      if (streamedResponse.statusCode == 200) {
-        final bytes = await streamedResponse.stream.toBytes();
+      if (response.statusCode == 200) {
+        final bytes = response.bodyBytes;
 
         if (bytes.isEmpty) {
           throw Exception("Resposta do servidor vazia.");
         }
 
-        String filename = 'resultado_filtrado.zip';
-        final contentDisposition = streamedResponse.headers['content-disposition'];
+        // Nome padrão, caso o servidor não envie
+        String filename = "resultado_filtrado.zip";
+        final contentDisposition = response.headers["content-disposition"];
         if (contentDisposition != null) {
           final match = RegExp(r'filename="?(.+)"?').firstMatch(contentDisposition);
           if (match != null && match.group(1) != null) {
@@ -175,6 +181,7 @@ class _OrganizePageState extends State<OrganizePage> {
           }
         }
 
+        // WEB
         if (kIsWeb) {
           final blob = html.Blob([bytes]);
           final url = html.Url.createObjectUrlFromBlob(blob);
@@ -188,11 +195,12 @@ class _OrganizePageState extends State<OrganizePage> {
           anchor.click();
           html.document.body?.children.remove(anchor);
           html.Url.revokeObjectUrl(url);
-
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('✅ Download de "$filename" iniciado.')),
           );
-        } else {
+        }
+        // ANDROID / DESKTOP
+        else {
           final outputPath = p.join(Directory.systemTemp.path, filename);
           await File(outputPath).writeAsBytes(bytes, flush: true);
 
@@ -201,15 +209,16 @@ class _OrganizePageState extends State<OrganizePage> {
           );
         }
       } else {
-        final responseString = await streamedResponse.stream.bytesToString();
         String errorMessage =
-            '❌ Erro (${streamedResponse.statusCode}): Servidor retornou um erro inesperado.';
+      '❌ Erro (${response.statusCode}): Servidor retornou um erro inesperado.';
 
         try {
-          final jsonResponse = jsonDecode(responseString);
+          final jsonResponse = jsonDecode(response.body);
           errorMessage =
-              '❌ Erro (${streamedResponse.statusCode}): ${jsonResponse['error'] ?? 'Erro desconhecido'}';
-        } catch (_) {}
+              '❌ Erro (${response.statusCode}): ${jsonResponse["error"] ?? "Erro desconhecido"}';
+        } catch (_) {
+          // Se não for JSON, mantém a mensagem padrão
+        }
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(errorMessage)),
