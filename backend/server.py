@@ -245,9 +245,6 @@ async def join_pdfs(files: list[UploadFile] = File(...)):
     )
 
 
-# ========= ROTA CONVERTER IMAGENS EM PDF ================
-
-
 # =============== ROTA PROCESSAR IMAGENS ==================
 @app.post(f"/{route_info['rt_imgs_to_pdf']}")
 async def process_images(files: list[UploadFile] = File(...)):
@@ -384,25 +381,34 @@ async def organize_documents_with_pattern(
     name_finder = NameFileInnerTable(filters=filter_text)
     total_files = len(pdfs) + len(images)
     # Renomear os arquivos recebidos usando os bytes.
-    try:
-        # Processar e renomear as imagens.
-        image_file: UploadFile
-        for image_file in images:
-            if image_file is None:
-                continue
-            image_bytes: bytes = await image_file.read()
+
+    # Imagens
+    # Processar e renomear as imagens.
+    image_file: UploadFile
+    __status = True
+    for image_file in images:
+        if image_file is None:
+            continue
+        image_bytes: bytes = await image_file.read()
+        try:
             name_finder.add_image(image_bytes)
-        progress_data['current'] = 50
-        for file_pdf in pdfs:
-            if file_pdf is None:
-                continue
-            pdf_bytes: bytes = await file_pdf.read()
+        except Exception as e:
+            print(f"[ERRO] Falha ao processar imagem: {e}")
+
+    progress_data['current'] = 50
+    for file_pdf in pdfs:
+        if file_pdf is None:
+            continue
+        pdf_bytes: bytes = await file_pdf.read()
+        try:
             name_finder.add_document(pdf_bytes)
-        progress_data["total"] = total_files
-    except Exception as err:
-        progress_data.update({"done": True, "zip_path": None})
-        print(f"DEBUG: Falha {err}")
-        return JSONResponse({"error": str(err)}, status_code=500)
+        except Exception as e:
+            print(f"[ERRO] Falha ao processar documento: {e}")
+    progress_data["total"] = total_files
+
+    #progress_data.update({"done": True, "zip_path": None})
+    #print(f"DEBUG: Falha {err}")
+    #return JSONResponse({"error": str(err)}, status_code=500)
 
     # Gravar os dados em bytes ZIP.
     try:
