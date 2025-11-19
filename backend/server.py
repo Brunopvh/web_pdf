@@ -47,7 +47,7 @@ from library.utils import (
 )
 from library.progress_route import (
     create_progress_with_id, thread_images_to_pdfs, TASK_PROGRESS_STATE, router as progress_router,
-    get_id_progress_state, get_json_progress
+    get_id_progress_state, get_json_progress, thread_organize_documents
 )
 
 TESS_FILE: str | None = None
@@ -74,6 +74,31 @@ print(route_info)
 
 # =============== INCLUIR ROTAS MODULARIZADAS ==================
 app.include_router(progress_router, prefix="") # Inclui o roteador de progresso
+
+
+# =============== ROTA DOWNLOAD ==================
+@app.get("/download/{task_id}")
+async def download_result(task_id: str):
+    # Busca o estado da tarefa pelo ID
+    current_progress: dict[str, Any] = get_id_progress_state(task_id)
+    if current_progress is None:
+        return JSONResponse({"error": "Barra de progresso inválida ou vazia."}, status_code=400)
+    
+    if (not current_progress["done"]) or (not current_progress["zip_path"]):
+        return JSONResponse({"error": "Arquivo ainda não está pronto"}, status_code=400)
+
+    print(f'Baixando: {current_progress["zip_path"]}')
+    zip_path = current_progress["zip_path"]
+    
+    # Após o download, remove a tarefa do dicionário global para limpeza
+    if task_id in TASK_PROGRESS_STATE:
+        del TASK_PROGRESS_STATE[task_id]
+        
+    return StreamingResponse(
+        open(zip_path, "rb"),
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=result.zip"},
+    )
 
 
 # 01 =================== ROTA PARA OCR EM IMAGENS =====================
@@ -217,30 +242,6 @@ async def process_images(files: list[UploadFile] = File(...)):
     return {"message": "Processamento iniciado", "task_id": task_id}
 
 
-# =============== ROTA DOWNLOAD ==================
-@app.get("/download/{task_id}")
-async def download_result(task_id: str):
-    # Busca o estado da tarefa pelo ID
-    current_progress: dict[str, Any] = get_id_progress_state(task_id)
-    if current_progress is None:
-        return JSONResponse({"error": "Barra de progresso inválida ou vazia."}, status_code=400)
-    
-    if (not current_progress["done"]) or (not current_progress["zip_path"]):
-        return JSONResponse({"error": "Arquivo ainda não está pronto"}, status_code=400)
-
-    print(f'Baixando: {current_progress["zip_path"]}')
-    zip_path = current_progress["zip_path"]
-    
-    # Após o download, remove a tarefa do dicionário global para limpeza
-    if task_id in TASK_PROGRESS_STATE:
-        del TASK_PROGRESS_STATE[task_id]
-        
-    return StreamingResponse(
-        open(zip_path, "rb"),
-        media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=result.zip"},
-    )
-
 # ===================== ROTA UNIFICADA PROCESSAR DOCUMENTOS =====================
 
 @app.post(f"/{route_info['rt_process_docs']}")
@@ -337,53 +338,38 @@ async def organize_documents_with_pattern(
         e = "O parâmetro 'pattern' é obrigatório nesta rota."
         return JSONResponse({"error": str(e)}, status_code=500)
 
-    progress_data = create_progress_with_id()
+    task_id = str(uuid.uuid4())
+    progress_data = create_progress_with_id(task_id)
     progress_data.update({"current": 0, "total": 0, "done": False, "zip_path": None})
-
-    # Objeto para organizar os arquivos
-    filter_text = FilterText(pattern)
-    name_finder = NameFileInnerTable(filters=filter_text)
-    total_files = len(pdfs) + len(images)
-    # Renomear os arquivos recebidos usando os bytes.
+    total_files = len(images) + len(pdfs)
+    progress_data['total'] = total_files
+    
+    send_args = {
+        'task_id': task_id,
+        'images': [],
+        'pdfs': [],
+        'pattern': pattern,
+    }
 
     # Imagens
-    # Processar e renomear as imagens.
     image_file: UploadFile
-    __status = True
     for image_file in images:
         if image_file is None:
             continue
         image_bytes: bytes = await image_file.read()
-        try:
-            name_finder.add_image(image_bytes)
-        except Exception as e:
-            print(f"[ERRO] Falha ao processar imagem: {e}")
-
-    progress_data['current'] = 50
+        send_args['images'].append(image_bytes)
+    
+    progress_data['current'] = total_files / 2
     for file_pdf in pdfs:
         if file_pdf is None:
             continue
         pdf_bytes: bytes = await file_pdf.read()
-        try:
-            name_finder.add_document(pdf_bytes)
-        except Exception as e:
-            print(f"[ERRO] Falha ao processar documento: {e}")
+        send_args['pdfs'].append(pdf_bytes)
     progress_data["total"] = total_files
+    
+    thread = threading.Thread(target=thread_organize_documents, kwargs=send_args)
+    thread.start()
+    return {"message": "Processamento iniciado", "task_id": task_id}
 
-    # Gravar os dados em bytes ZIP.
-    try:
-        zip_bytes: io.BytesIO | None = name_finder.export_keys_to_zip()
-        zip_bytes.seek(0)
-    except Exception as e:
-        progress_data.update({"done": True, "zip_path": None})
-        print(f"[ERRO] Falha ao processar documentos: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
-    else:
-        # Retornar o ZIP para download.
-        return StreamingResponse(
-            zip_bytes,
-            media_type="application/zip",
-            headers={"Content-Disposition": "attachment; filename=resultado_final.zip"},
-        )
 
 

@@ -6,6 +6,8 @@ import tempfile
 import convert_stream as cs
 import zipfile
 import os
+import soup_files as sp
+from organize_stream import FilterData, NameFileInnerTable, FilterText
 
 # Define o roteador para as rotas de progresso
 router = APIRouter()
@@ -94,3 +96,53 @@ def thread_images_to_pdfs(images: list[str], task_id: str) -> None:
     except Exception as e:
         current_progress.update({"done": True, "zip_path": None})
         print(f"[ERRO] Worker falhou: {e}")
+        
+    
+def thread_organize_documents(**kwargs) -> None:
+    """
+    Recebe uma lista de imagens e junta tudo em arquivos pdf, o download final
+    são arquivos .pdf dentro de um .zip
+    """
+    # Criar diretório temporário para saída
+    temp_dir: sp.Directory = sp.Directory(tempfile.mkdtemp())
+    temp_dir.mkdir()
+    _output_zip: str = temp_dir.join_file("resultado.zip").absolute()
+    current_progress: dict[str, Any] = get_id_progress_state(kwargs['task_id'])
+    current_progress['total'] = len(kwargs['images']) + len(kwargs['pdfs'])
+    current_progress['current'] = 0
+    try:
+        # Objeto para organizar os arquivos
+        filter_text = FilterText(kwargs['pattern'])
+        name_finder = NameFileInnerTable(filters=filter_text)
+        count = 0
+        img_bytes: bytes
+        for img_bytes in kwargs['images']:
+            current_progress["current"] = count
+            count += 1
+            name_finder.add_image(img_bytes)    
+            
+        pdf_bytes: bytes
+        for pdf_bytes in kwargs['pdfs']:
+            current_progress["current"] = count
+            count += 1
+            name_finder.add_image(pdf_bytes)
+        
+        path_excel = temp_dir.join_file('dados.xlsx')
+        final_bytes: BytesIO = name_finder.export_keys_to_zip()
+        name_finder.export_log_actions().to_excel(path_excel.absolute(), index=False)
+        final_bytes.seek(0)
+        with zipfile.ZipFile(final_bytes, 'a', zipfile.ZIP_DEFLATED) as zipf:
+            # 4. Adicione o novo arquivo
+            # writestr é o método ideal para adicionar bytes na memória.
+            zipf.writestr('dados.xlsx', path_excel.path.read_bytes())
+        
+        final_bytes.seek(0)
+        with open(_output_zip, 'wb') as fp:
+            fp.write(final_bytes.getvalue())
+        
+    except Exception as e:
+        current_progress.update({"done": True, "zip_path": None})
+        print(f"[ERRO] Worker falhou: {e}")
+    else:
+        current_progress.update({"done": True, "zip_path": _output_zip})
+        
