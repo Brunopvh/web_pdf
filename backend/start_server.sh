@@ -8,7 +8,7 @@ THIS_SCRIPT=$(readlink -f "$0")
 THIS_DIR=$(dirname "$THIS_SCRIPT")
 DIR_ROOT=$(cd $THIS_DIR && cd .. && pwd)
 LIB_VENV="${DIR_ROOT}/scripts/library/common.sh"
-FILE_MAIN="${THIS_DIR}/server.py"
+FILE_MAIN="${THIS_DIR}/server/main.py"
 FILE_TEST="${THIS_DIR}/tests.py"
 source "$LIB_VENV" || exit 1
 

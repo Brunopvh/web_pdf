@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 import os
+import sys
 from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,8 @@ from fastapi.responses import JSONResponse
 from fastapi import Form
 import base64
 from typing import Any
+import uuid
+
 import io
 import zipfile
 import convert_stream as cs
@@ -27,13 +30,29 @@ from organize_stream.document.name_files import (
     NameFileInnerTable, ExtractNameInnerData, ExtractNameInnerText
 )
 from sheet_stream import ReadFileSheet, LibSheet
-#from fastapi.responses import StreamingResponse, JSONResponse
 
-SERVER_FILE = os.path.abspath(os.path.realpath(__file__))
-DIR_ROOT = os.path.abspath(os.path.join(os.path.dirname(SERVER_FILE), '..'))
-DIR_ASSETS = os.path.join(DIR_ROOT, 'frontend', 'assets', 'data')
+
+# Script principal -> backend/server.py
+SERVER_FILE = os.path.abspath(os.path.realpath(__file__)) 
+# Diretório library -> backend/server/library
+DIR_SERVER_LIBRARY = os.path.abspath(os.path.join(os.path.dirname(SERVER_FILE), 'library'))
+# Diretório raiz do projeto web_convert
+DIR_OF_PROJECT = os.path.abspath(os.path.join(DIR_SERVER_LIBRARY, '..', '..')) 
+DIR_ASSETS = os.path.join(DIR_OF_PROJECT, 'frontend', 'assets', 'data')
 FILE_CONF = os.path.join(DIR_ASSETS, 'ips.json')
-TESS_FILE = '/usr/bin/tesseract'
+sys.path.insert(0, DIR_SERVER_LIBRARY)
+
+from library.utils import (
+    get_json_info, get_temp_dir 
+)
+from library.progress_route import (
+    create_progress_with_id, thread_images_to_pdfs, TASK_PROGRESS_STATE, router as progress_router,
+    get_id_progress_state, get_json_progress
+)
+
+TESS_FILE: str | None = None
+if sp.KERNEL_TYPE == 'Linux':
+    TESS_FILE = '/usr/bin/tesseract'
 
 app = FastAPI()
 
@@ -47,88 +66,17 @@ app.add_middleware(
 )
 
 
-def get_temp_dir():
-    # Criar diretório temporário para saída
-    temp_dir = tempfile.mkdtemp()
-    return temp_dir
-
-
-# ===================== OBTER ROTAS E IPS DO ARQUIVO JSON ====
-def get_json_info(file_json: str = FILE_CONF) -> dict[str, Any] | None:
-    """
-        Ler o arquivo .json para obter informações de rotas e IPS.
-    """
-    try:
-        data = sp.JsonConvert.from_file(sp.File(file_json)).to_json_data()
-        return data.to_dict()
-    except Exception as err:
-        print(err)
-    return None
-
-
-route_info = get_json_info()
+route_info: dict[str, Any] = get_json_info(sp.File(FILE_CONF))
+if route_info is None:
+    print(f'Erro: a rota está vazia, verifique o JSON de rotas')
+    sys.exit(1)
 print(route_info)
 
-
-def create_progress() -> dict[str, Any]:
-    return {
-        "current": 0,
-        "total": 0,
-        "done": False,
-        "zip_path": None,
-    }
+# =============== INCLUIR ROTAS MODULARIZADAS ==================
+app.include_router(progress_router, prefix="") # Inclui o roteador de progresso
 
 
-# Estado global simples
-progress_data: dict[str, Any] = create_progress()
-
-# =============== ROTA PROGRESSO ==================
-@app.get("/progress")
-async def get_progress():
-    if progress_data["total"]:
-        pbar = ((progress_data["current"] + 1) / progress_data["total"]) * 100
-    else:
-        pbar = 0
-    return JSONResponse({
-        "current": progress_data["current"],
-        "total": progress_data["total"],
-        "progress": pbar,
-        "done": progress_data["done"],
-    })
-
-
-# =============== WORKER ==================
-def worker_progress(files: list[str]):
-    # Criar diretório temporário para saída
-    temp_dir = tempfile.mkdtemp()
-    _output_zip = os.path.join(temp_dir, "resultado.zip")
-    pdf_stream = cs.PdfStream()
-
-    try:
-        progress_data['total'] = len(files)
-        with zipfile.ZipFile(_output_zip, "w") as zipf:
-            for idx, path in enumerate(files):
-                progress_data["current"] = idx
-                with open(path, "rb") as fp:
-                    raw_bytes = fp.read()
-                im = cs.ImageObject.create_from_bytes(raw_bytes)
-                pdf_stream.add_image(im)
-                doc = pdf_stream.to_document()
-                pdf_bytes: io.BytesIO = doc.to_bytes()
-                filename = f"documento_{idx}.pdf"
-                zipf.writestr(filename, pdf_bytes.getvalue())
-                pdf_stream.clear()
-                del doc
-        # finalizou
-        progress_data.update({"done": True, "zip_path": _output_zip})
-
-    except Exception as e:
-        progress_data.update({"done": True, "zip_path": None})
-        print(f"[ERRO] Worker falhou: {e}")
-
-
-# =================== ROTA PARA OCR EM IMAGENS =====================
-
+# 01 =================== ROTA PARA OCR EM IMAGENS =====================
 @app.post(f"/{route_info['rt_ocr']}")
 async def ocr_images(
             files: list[UploadFile] = File(...),
@@ -156,7 +104,7 @@ async def ocr_images(
     )
 
 
-# ===================== ROTA PDF PARA IMAGENS =====================
+# 02 ===================== ROTA PDF PARA IMAGENS =====================
 @app.post(f"/{route_info['rt_convert_pdf']}")
 async def convert_pdfs(files: list[UploadFile] = File(...)):
     """
@@ -190,7 +138,7 @@ async def convert_pdfs(files: list[UploadFile] = File(...)):
     )
 
 
-# ===================== ROTA DIVIDIR PDF =====================
+# 03 ===================== ROTA DIVIDIR PDF =====================
 @app.post(f"/{route_info['rt_split_pdf']}")
 async def split_pdf(files: list[UploadFile] = File(...)):
     """
@@ -222,6 +170,7 @@ async def split_pdf(files: list[UploadFile] = File(...)):
     )
 
 
+# 04 ===================== ROTA JUNTAR PDF =====================
 @app.post(f"/{route_info['rt_join_pdf']}")
 async def join_pdfs(files: list[UploadFile] = File(...)):
     """
@@ -245,9 +194,14 @@ async def join_pdfs(files: list[UploadFile] = File(...)):
     )
 
 
-# =============== ROTA PROCESSAR IMAGENS ==================
+# 05 =============== CONVERTER IMAGENS EM PDF ===============
 @app.post(f"/{route_info['rt_imgs_to_pdf']}")
 async def process_images(files: list[UploadFile] = File(...)):
+    # 1. Gera um ID único para esta tarefa
+    task_id = str(uuid.uuid4())
+    # 2. Inicializa o estado de progresso para este ID
+    create_progress_with_id(task_id)
+    
     image_files: list[str] = []
 
     # Salvar os uploads em arquivos temporários
@@ -258,25 +212,34 @@ async def process_images(files: list[UploadFile] = File(...)):
         temp_file.close()
         image_files.append(temp_file.name)
     # Rodar conversão em thread
-    thread = threading.Thread(target=worker_progress, args=(image_files,))
+    thread = threading.Thread(target=thread_images_to_pdfs, args=(image_files, task_id))
     thread.start()
-    return {"message": "Processamento iniciado"}
+    return {"message": "Processamento iniciado", "task_id": task_id}
 
 
 # =============== ROTA DOWNLOAD ==================
-@app.get("/download")
-async def download_result():
-    if (not progress_data["done"]) or (not progress_data["zip_path"]):
+@app.get("/download/{task_id}")
+async def download_result(task_id: str):
+    # Busca o estado da tarefa pelo ID
+    current_progress: dict[str, Any] = get_id_progress_state(task_id)
+    if current_progress is None:
+        return JSONResponse({"error": "Barra de progresso inválida ou vazia."}, status_code=400)
+    
+    if (not current_progress["done"]) or (not current_progress["zip_path"]):
         return JSONResponse({"error": "Arquivo ainda não está pronto"}, status_code=400)
 
-    print(f'Baixando: {progress_data["zip_path"]}')
-    zip_path = progress_data["zip_path"]
+    print(f'Baixando: {current_progress["zip_path"]}')
+    zip_path = current_progress["zip_path"]
+    
+    # Após o download, remove a tarefa do dicionário global para limpeza
+    if task_id in TASK_PROGRESS_STATE:
+        del TASK_PROGRESS_STATE[task_id]
+        
     return StreamingResponse(
         open(zip_path, "rb"),
         media_type="application/zip",
         headers={"Content-Disposition": "attachment; filename=result.zip"},
     )
-
 
 # ===================== ROTA UNIFICADA PROCESSAR DOCUMENTOS =====================
 
@@ -290,6 +253,7 @@ async def organize_documents_with_sheet(
     """
     Rota unificada para processar PDFs, imagens e renomear com base em uma planilha Excel.
     """
+    progress_data = create_progress_with_id()
 
     temp_dir: str = tempfile.mkdtemp()
     progress_data.update({"current": 0, "total": 0, "done": False, "zip_path": None})
@@ -305,7 +269,7 @@ async def organize_documents_with_sheet(
             if current_file is None:
                 continue
             content: bytes = await current_file.read()
-            file_path = os.path.join(temp_dir, current_file.filename)
+            file_path: str = os.path.join(temp_dir, current_file.filename)
             with open(file_path, "wb") as f:
                 f.write(content)
             saved_files.append(file_path)
@@ -373,7 +337,7 @@ async def organize_documents_with_pattern(
         e = "O parâmetro 'pattern' é obrigatório nesta rota."
         return JSONResponse({"error": str(e)}, status_code=500)
 
-    #temp_dir: str = tempfile.mkdtemp()
+    progress_data = create_progress_with_id()
     progress_data.update({"current": 0, "total": 0, "done": False, "zip_path": None})
 
     # Objeto para organizar os arquivos
@@ -405,10 +369,6 @@ async def organize_documents_with_pattern(
         except Exception as e:
             print(f"[ERRO] Falha ao processar documento: {e}")
     progress_data["total"] = total_files
-
-    #progress_data.update({"done": True, "zip_path": None})
-    #print(f"DEBUG: Falha {err}")
-    #return JSONResponse({"error": str(err)}, status_code=500)
 
     # Gravar os dados em bytes ZIP.
     try:

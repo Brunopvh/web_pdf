@@ -4,8 +4,8 @@
 
 THIS_FILE=$(readlink -f "$0")
 THIS_DIR=$(dirname "$THIS_FILE")
-DIR_ROOT=$(cd $THIS_DIR && cd .. && pwd)
-LIB_VENV="${DIR_ROOT}/scripts/library/common.sh"
+DIR_ROOT=$(cd $THIS_DIR && cd .. && cd .. && pwd)
+LIB_VENV="${DIR_ROOT}/scripts/library/common.sh" # Diretório contendo scripts em uma subpasta do projeto.
 source "$LIB_VENV" || exit 1
 FILE_REQ="${THIS_DIR}/$FILE_REQUIREMENTS"
 
