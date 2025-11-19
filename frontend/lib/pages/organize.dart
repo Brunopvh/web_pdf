@@ -193,14 +193,13 @@ class _OrganizePageState extends State<OrganizePage> {
       );
       return;
     }
-    if (!hasSheet && patternController.text.isEmpty) {
-      if(selectedDocumentType == 'DOCUMENTO GENÉRICO')
-        ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Digite o digite um texto/busca na caixa apropriada!')),
+    // Só exige o padrão de texto SE NÃO HOUVER planilha E o tipo for DOCUMENTO GENÉRICO.
+    if (!hasSheet && selectedDocumentType == 'DOCUMENTO GENÉRICO' && patternController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Para DOCUMENTO GENÉRICO, digite um texto/busca na caixa apropriada!')),
       );
       return;
     }
-
 
     setState(() {
       isProcessing = true;

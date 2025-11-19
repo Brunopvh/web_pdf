@@ -336,8 +336,9 @@ async def organize_documents_with_pattern(
     Retorna um ZIP com os arquivos processados.
     """
     if not pattern:
-        e = "O parâmetro 'pattern' é obrigatório nesta rota."
-        return JSONResponse({"error": str(e)}, status_code=500)
+        if not document_type:
+            e = "O parâmetro 'pattern' é obrigatório nesta rota."
+            return JSONResponse({"error": str(e)}, status_code=500)
 
     task_id = str(uuid.uuid4())
     progress_data = create_progress_with_id(task_id)
