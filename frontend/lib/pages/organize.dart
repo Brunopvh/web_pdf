@@ -36,6 +36,15 @@ class _OrganizePageState extends State<OrganizePage> {
   // Controladores de texto
   final TextEditingController patternController = TextEditingController();
   final TextEditingController columnController = TextEditingController();
+  final List<String> documentOptions = ['DOCUMENTO GENÉRICO', 'EPIS', 'CARTAS'];
+  late String selectedDocumentType; // Armazenará o valor selecionado
+
+  @override
+  void initState() {
+    super.initState();
+    // Define o valor padrão
+    selectedDocumentType = documentOptions[0]; 
+  }
 
   // ... (pickPdfFiles, pickImageFiles, pickXlsxFile permanecem inalterados) ...
 
@@ -47,7 +56,8 @@ class _OrganizePageState extends State<OrganizePage> {
       xlsxFile = null;
       patternController.clear();
       columnController.clear();
-      
+      selectedDocumentType = documentOptions[0];
+
       // Limpa os estados de processamento
       isProcessing = false;
       progress = 0.0;
@@ -175,6 +185,7 @@ class _OrganizePageState extends State<OrganizePage> {
       return;
     }
 
+
     final hasSheet = xlsxFile != null;
     if (hasSheet && columnController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -183,7 +194,8 @@ class _OrganizePageState extends State<OrganizePage> {
       return;
     }
     if (!hasSheet && patternController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if(selectedDocumentType == 'DOCUMENTO GENÉRICO')
+        ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Digite o digite um texto/busca na caixa apropriada!')),
       );
       return;
@@ -243,7 +255,8 @@ class _OrganizePageState extends State<OrganizePage> {
       if (!hasSheet) {
         request.fields['pattern'] = patternController.text;
       }
-      
+      // Envia o tipo de documento selecionado
+      request.fields['document_type'] = selectedDocumentType;
       // Envia requisição e aguarda a resposta que contém o task_id
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
@@ -340,7 +353,7 @@ class _OrganizePageState extends State<OrganizePage> {
 
   @override
   Widget build(BuildContext context) {
-    // ... (restante do código build) ...
+    
     return Scaffold(
       appBar: AppBar(
         title: const Text('Organizar Documentos'),
@@ -409,6 +422,35 @@ class _OrganizePageState extends State<OrganizePage> {
                   ),
                 ),
               ),
+            const SizedBox(height: 20),
+            // ================== NOVO: Dropdown de Tipos de Documento ==================
+            Container(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade400),
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  isExpanded: true,
+                  value: selectedDocumentType,
+                  hint: const Text("Selecione o Tipo de Documento"),
+                  icon: const Icon(Icons.arrow_drop_down),
+                  items: documentOptions.map((String value) {
+                    return DropdownMenuItem<String>(
+                      value: value,
+                      child: Text(value),
+                    );
+                  }).toList(),
+                  onChanged: (String? newValue) {
+                    setState(() {
+                      selectedDocumentType = newValue!;
+                    });
+                  },
+                ),
+              ),
+            ),
             const SizedBox(height: 20),
             // Se o XLSX não foi selecionado, o padrão de texto é necessário.
             if (xlsxFile == null)

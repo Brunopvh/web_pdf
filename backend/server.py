@@ -327,7 +327,8 @@ async def organize_documents_with_sheet(
 async def organize_documents_with_pattern(
             pdfs: list[UploadFile] = File(default=[]),
             images: list[UploadFile] = File(default=[]),
-            pattern: str = Form(default=None),  # padrão de texto
+            pattern: str = Form(default=None), 
+            document_type: str = Form(default=None),
         ):
     """
     Rota alternativa usada quando o usuário digita um padrão de texto
@@ -349,6 +350,7 @@ async def organize_documents_with_pattern(
         'images': [],
         'pdfs': [],
         'pattern': pattern,
+        'document_type': document_type,
     }
 
     # Imagens

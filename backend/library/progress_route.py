@@ -7,7 +7,7 @@ import convert_stream as cs
 import zipfile
 import os
 import soup_files as sp
-from organize_stream import FilterData, NameFileInnerTable, FilterText
+from organize_stream import FilterData, NameFileInnerTable, FilterText, LibDigitalized
 
 # Define o roteador para as rotas de progresso
 router = APIRouter()
@@ -110,10 +110,18 @@ def thread_organize_documents(**kwargs) -> None:
     current_progress: dict[str, Any] = get_id_progress_state(kwargs['task_id'])
     current_progress['total'] = len(kwargs['images']) + len(kwargs['pdfs'])
     current_progress['current'] = 0
+    
     try:
         # Objeto para organizar os arquivos
-        filter_text = FilterText(kwargs['pattern'])
-        name_finder = NameFileInnerTable(filters=filter_text)
+        #if kwargs['document_type'] == 'DOCUMENTO GENÉRICO':
+        if kwargs['document_type'] == 'EPIS':
+            name_finder = NameFileInnerTable(lib_digitalized=LibDigitalized.EPI)
+        elif kwargs['document_type'] == 'CARTAS':
+            name_finder = NameFileInnerTable(lib_digitalized=LibDigitalized.CARTA_CALCULO)
+        else:
+            filter_text = FilterText(kwargs['pattern'])
+            name_finder = NameFileInnerTable(filters=filter_text)
+            
         count = 0
         img_bytes: bytes
         for img_bytes in kwargs['images']:
