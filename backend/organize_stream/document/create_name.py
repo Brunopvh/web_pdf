@@ -292,7 +292,11 @@ class CreateNewFile(object):
             src_extension = tb.get_column(ColumnsTable.FILETYPE).first
         if (src_extension is not None) and (src_extension != '') and (src_extension != 'nan'):
             output_info.set_extension(src_extension)
-        output_info.set_filename(f'{filename_str}{output_info.get_extension()}')
+            
+        if output_info.get_extension() is None:
+            output_info.set_filename(filename_str)
+        else:
+            output_info.set_filename(f'{filename_str}{output_info.get_extension()}')
         return output_info
 
     def _save_file_keyword(
