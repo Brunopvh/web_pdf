@@ -23,29 +23,36 @@ import soup_files as sp
 import pandas as pd
 import tempfile
 import threading
-from organize_stream import (
-    FilterText, FilterData, LibDigitalized
-)
-from organize_stream.document.name_files import (
-    NameFileInnerTable, ExtractNameInnerData, ExtractNameInnerText
-)
-from sheet_stream import ReadFileSheet, LibSheet
-
+import shutil
+from sheet_stream import ListItems
 
 # Script principal -> backend/server.py
 SERVER_FILE = os.path.abspath(os.path.realpath(__file__)) 
-# Diretório library -> backend/server/library
+# Diretório library -> backend/library
 DIR_SERVER_LIBRARY = os.path.abspath(os.path.join(os.path.dirname(SERVER_FILE), 'library'))
+# backend/organize_stream
+DIR_MOD_ORGANIZE = os.path.abspath(os.path.join(os.path.dirname(SERVER_FILE), 'organize_stream'))
 # Diretório raiz do projeto web_convert
 DIR_OF_PROJECT = os.path.abspath(os.path.join(DIR_SERVER_LIBRARY, '..', '..')) 
 DIR_ASSETS = os.path.join(DIR_OF_PROJECT, 'frontend', 'assets', 'data')
 FILE_CONF = os.path.join(DIR_ASSETS, 'ips.json')
 sys.path.insert(0, DIR_SERVER_LIBRARY)
+sys.path.insert(0, DIR_MOD_ORGANIZE)
 
-from library.utils import (
+
+from organize_stream.type_utils import (
+    FilterText, FilterData, LibDigitalized
+)
+from organize_stream.document.create_name import (
+    CreateNewFile, ExtractNameInnerData, ExtractNameInnerText,
+    DiskFileInfo, DiskOriginInfo, DiskOutputInfo,
+)
+from sheet_stream import ReadFileSheet, LibSheet
+
+from organize_stream.library.common import (
     get_json_info, get_temp_dir 
 )
-from library.progress_route import (
+from organize_stream.library.progress_route import (
     create_progress_with_id, thread_images_to_pdfs, TASK_PROGRESS_STATE, router as progress_router,
     get_id_progress_state, get_json_progress, thread_organize_documents
 )
@@ -53,7 +60,16 @@ from library.progress_route import (
 TESS_FILE: str | None = None
 if sp.KERNEL_TYPE == 'Linux':
     TESS_FILE = '/usr/bin/tesseract'
+    if not os.path.exists(TESS_FILE):
+        raise FileNotFoundError(f'Arquivo não encontrado: {TESS_FILE}')
+elif sp.KERNEL_TYPE == 'Windows':
+    TESS_FILE = shutil.which('tesseract.exe')
+if TESS_FILE is None:
+    raise FileNotFoundError(
+        f'tesseract.exe não encontrado em PATH, instale o tesseract ou defina um valor para TESS_FILE em {__file__}'
+    )    
 
+    
 app = FastAPI()
 
 # Habilitar CORS
@@ -346,30 +362,42 @@ async def organize_documents_with_pattern(
     total_files = len(images) + len(pdfs)
     progress_data['total'] = total_files
     
-    send_args = {
-        'task_id': task_id,
-        'images': [],
-        'pdfs': [],
-        'pattern': pattern,
-        'document_type': document_type,
-    }
-
+    input_files_image: ListItems[DiskOriginInfo] = ListItems()
+    input_files_pdf: ListItems[DiskOriginInfo] = ListItems()
+    
     # Imagens
     image_file: UploadFile
     for image_file in images:
         if image_file is None:
             continue
+        current = DiskOriginInfo()
+        extension_file = f".{image_file.filename.split('.')[-1]}"
         image_bytes: bytes = await image_file.read()
-        send_args['images'].append(image_bytes)
-    
+        current.set_file_bytes(image_bytes)
+        current.set_filename(image_file.filename)
+        current.set_extension(extension_file)
+        input_files_image.append(current)
+        
     progress_data['current'] = total_files / 2
     for file_pdf in pdfs:
         if file_pdf is None:
             continue
+        current = DiskOriginInfo()
+        extension_file = f".{file_pdf.filename.split('.')[-1]}"
         pdf_bytes: bytes = await file_pdf.read()
-        send_args['pdfs'].append(pdf_bytes)
+        current.set_file_bytes(pdf_bytes)
+        current.set_filename(file_pdf.filename)
+        current.set_extension(extension_file)
+        input_files_pdf.append(current)
+        
+    send_args: dict[str, object] = {
+        'task_id': task_id,
+        'images': input_files_image,
+        'pdfs': input_files_pdf,
+        'pattern': pattern,
+        'document_type': document_type,
+    }
     progress_data["total"] = total_files
-    
     thread = threading.Thread(target=thread_organize_documents, kwargs=send_args)
     thread.start()
     return {"message": "Processamento iniciado", "task_id": task_id}

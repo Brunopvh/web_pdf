@@ -7,7 +7,11 @@ import convert_stream as cs
 import zipfile
 import os
 import soup_files as sp
-from organize_stream import FilterData, NameFileInnerTable, FilterText, LibDigitalized
+from organize_stream.document import CreateNewFile
+from organize_stream.type_utils import (
+    FilterData, FilterText, LibDigitalized, DiskOriginInfo, DiskOutputInfo
+)
+from sheet_stream import ListItems
 
 # Define o roteador para as rotas de progresso
 router = APIRouter()
@@ -98,7 +102,7 @@ def thread_images_to_pdfs(images: list[str], task_id: str) -> None:
         print(f"[ERRO] Worker falhou: {e}")
         
     
-def thread_organize_documents(**kwargs) -> None:
+def thread_organize_documents(**kwargs: dict[str, Any]) -> None:
     """
     Recebe uma lista de imagens e junta tudo em arquivos pdf, o download final
     são arquivos .pdf dentro de um .zip
@@ -111,46 +115,60 @@ def thread_organize_documents(**kwargs) -> None:
     current_progress['total'] = len(kwargs['images']) + len(kwargs['pdfs'])
     current_progress['current'] = 0
     
+    name_finder: CreateNewFile
+    if kwargs['document_type'] == 'EPIS':
+        name_finder = CreateNewFile(lib_digitalized=LibDigitalized.EPI)
+    elif kwargs['document_type'] == 'CARTAS':
+        name_finder = CreateNewFile(lib_digitalized=LibDigitalized.CARTA_CALCULO)
+    else:
+        if kwargs['pattern'] is None:
+            current_progress.update({"done": True, "zip_path": None})
+            print(f"DEBUG: thread_organize_documents falhou, o filtro de texto é nulo!")
+            return
+        filter_text = FilterText(kwargs['pattern'])
+        name_finder = CreateNewFile(filters=filter_text)
+           
+    final_bytes: BytesIO | None
     try:
-        # Objeto para organizar os arquivos
-        #if kwargs['document_type'] == 'DOCUMENTO GENÉRICO':
-        if kwargs['document_type'] == 'EPIS':
-            name_finder = NameFileInnerTable(lib_digitalized=LibDigitalized.EPI)
-        elif kwargs['document_type'] == 'CARTAS':
-            name_finder = NameFileInnerTable(lib_digitalized=LibDigitalized.CARTA_CALCULO)
-        else:
-            filter_text = FilterText(kwargs['pattern'])
-            name_finder = NameFileInnerTable(filters=filter_text)
-            
         count = 0
-        img_bytes: bytes
-        for img_bytes in kwargs['images']:
+        files_image: ListItems[DiskOriginInfo] = kwargs['images']
+        files_pdf: ListItems[DiskOriginInfo] = kwargs['pdfs']
+        total = len(files_image) + len(files_pdf)
+        
+        for num, file_info in enumerate(files_image):
             current_progress["current"] = count
             count += 1
-            name_finder.add_image(img_bytes)    
+            print(f'{num+1}/{total}')
+            name_finder.add_disk_file(file_info) 
+        for num, file_info in enumerate(files_pdf):
+            current_progress["current"] = count
+            count += 1
+            print(f'{num+1}/{total}')
+            name_finder.add_disk_file(file_info) 
             
-        pdf_bytes: bytes
-        for pdf_bytes in kwargs['pdfs']:
-            current_progress["current"] = count
-            count += 1
-            name_finder.add_image(pdf_bytes)
-        
-        path_excel = temp_dir.join_file('dados.xlsx')
-        final_bytes: BytesIO = name_finder.export_keys_to_zip()
-        name_finder.export_log_actions().to_excel(path_excel.absolute(), index=False)
-        final_bytes.seek(0)
-        with zipfile.ZipFile(final_bytes, 'a', zipfile.ZIP_DEFLATED) as zipf:
-            # 4. Adicione o novo arquivo
-            # writestr é o método ideal para adicionar bytes na memória.
-            zipf.writestr('dados.xlsx', path_excel.path.read_bytes())
-        
-        final_bytes.seek(0)
-        with open(_output_zip, 'wb') as fp:
-            fp.write(final_bytes.getvalue())
-        
+        final_bytes: BytesIO | None = name_finder.export_keys_to_zip()
+        if final_bytes is None:
+            current_progress.update({"done": True, "zip_path": None})
+            print(f"DEBUG: thread_organize_documents falhou, o arquivo zip é nulo!")
+            return
     except Exception as e:
         current_progress.update({"done": True, "zip_path": None})
-        print(f"[ERRO] Worker falhou: {e}")
+        print(f"\n[ERRO] thread_organize_documents falhou ao tentar gerar o arquivo ZIP: {e}")
     else:
-        current_progress.update({"done": True, "zip_path": _output_zip})
+        try:
+            path_excel = temp_dir.join_file('dados.xlsx')
+            name_finder.export_log_actions().to_excel(path_excel.absolute(), index=False)
+            final_bytes.seek(0)
+            with zipfile.ZipFile(final_bytes, 'a', zipfile.ZIP_DEFLATED) as zipf:
+                # writestr adiciona bytes na memória.
+                zipf.writestr('dados.xlsx', path_excel.path.read_bytes())
+            final_bytes.seek(0)
+            with open(_output_zip, 'wb') as fp:
+                fp.write(final_bytes.getvalue())
+            
+        except Exception as e:
+            current_progress.update({"done": True, "zip_path": None})
+            print(f"\n[ERRO] thread_organize_documents falhou ao tentar salvar o arquivo ZIP: {e}")
+        else:
+            current_progress.update({"done": True, "zip_path": _output_zip})
         

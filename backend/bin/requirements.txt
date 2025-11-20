@@ -6,7 +6,7 @@ convert_stream>=2.5.1
 ocr_stream>=2.5.2
 pytesseract
 PyMuPdf
-organize-stream>=2.5.3
+#organize-stream>=2.5.3
 
 
 
