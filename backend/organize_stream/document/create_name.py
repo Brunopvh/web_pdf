@@ -288,15 +288,11 @@ class CreateNewFile(object):
         if (filename_str is None) or (filename_str == 'nan') or (filename_str == ''):
             print(f'Novo nome não gerado ... {tb.get_row(0)}')
             return None
-        
         if (src_extension is None) or (src_extension == '') and (src_extension == 'nan'):
             src_extension = tb.get_column(ColumnsTable.FILETYPE).first
-        if (src_extension is None) or (src_extension == '') and (src_extension == 'nan'):
-            print(f'Novo nome não gerado ... {tb.get_row(0)}')
-            return None
-            
-        output_info.set_extension(src_extension)
-        output_info.set_filename(filename_str)
+        if (src_extension is not None) and (src_extension != '') and (src_extension != 'nan'):
+            output_info.set_extension(src_extension)
+        output_info.set_filename(f'{filename_str}{output_info.get_extension()}')
         return output_info
 
     def _save_file_keyword(
@@ -369,6 +365,9 @@ class CreateNewFile(object):
             return
         output_info = self.create_output_info(tb)
         if output_info is not None:
+            if output_info.get_extension() is None:
+                ext = disk_file.get_extension()
+                output_info.set_filename(f'{output_info.get_filename()}{ext}')
             key_info.set_output_file(output_info)
             self.__list_key_files.append(key_info)
             
