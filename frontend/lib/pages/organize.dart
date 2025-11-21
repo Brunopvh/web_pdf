@@ -355,11 +355,18 @@ class _OrganizePageState extends State<OrganizePage> {
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Organizar Documentos'),
-        backgroundColor: Colors.blueGrey.shade700,
+        title: const Text(
+          'Organizar Documentos',
+          style: TextStyle(color: Colors.white),  
+        ),
+        backgroundColor: Colors.blue.shade600,
+        iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
-            icon: const Icon(Icons.delete_forever),
+            icon: const Icon(
+              Icons.delete_forever,
+              color: Color.fromARGB(255, 207, 36, 36)
+            ),
             tooltip: 'Limpar tudo',
             onPressed: clearAllFiles,
           ),
@@ -422,6 +429,7 @@ class _OrganizePageState extends State<OrganizePage> {
                 ),
               ),
             const SizedBox(height: 20),
+            /*
             // ================== NOVO: Dropdown de Tipos de Documento ==================
             Container(
               margin: const EdgeInsets.symmetric(vertical: 8),
@@ -450,27 +458,77 @@ class _OrganizePageState extends State<OrganizePage> {
                 ),
               ),
             ),
+            */
             const SizedBox(height: 20),
             // Se o XLSX não foi selecionado, o padrão de texto é necessário.
             if (xlsxFile == null)
-              TextField(
-                controller: patternController,
-                decoration: const InputDecoration(
-                  labelText: 'Padrão de texto para busca obrigatório',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.text_fields),
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start, // Alinha os itens ao topo
+                children: [
+                  // 1. Dropdown (Esquerda, 40% da largura)
+                  Flexible(
+                    flex: 2, // Proporção 2
+                    child: Container(
+                      margin: const EdgeInsets.only(right: 8), // Pequena margem à direita
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade400),
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          isExpanded: true,
+                          value: selectedDocumentType,
+                          hint: const Text("Tipo"),
+                          icon: const Icon(Icons.arrow_drop_down),
+                          items: documentOptions.map((String value) {
+                            return DropdownMenuItem<String>(
+                              value: value,
+                              child: Text(value, overflow: TextOverflow.ellipsis),
+                            );
+                          }).toList(),
+                          onChanged: (String? newValue) {
+                            setState(() {
+                              selectedDocumentType = newValue!;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // 2. Campo de Padrão de Texto (Direita, 60% da largura)
+                  Expanded(
+                    flex: 4, // Proporção 3 (3/5 = 60%)
+                    child: TextField(
+                      controller: patternController,
+                      decoration: const InputDecoration(
+                        labelText: 'Padrão de texto para busca',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.text_fields),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             const SizedBox(height: 30),
             
             // Botão Processar
-            ElevatedButton.icon(
-              onPressed: isProcessing ? null : processFiles,
-              icon: const Icon(Icons.play_circle_fill),
-              label: const Text('Processar Documentos'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.teal,
-                minimumSize: const Size(double.infinity, 50),
+            Center( // Centraliza o botão na largura disponível
+              child: ElevatedButton.icon(
+                onPressed: isProcessing ? null : processFiles,
+                icon: const Icon(Icons.play_circle_fill, color: Colors.black54), // Ícone preto
+                label: const Text(
+                  'Processar Documentos', 
+                  style: TextStyle(color: Colors.black87), // Texto preto
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white, // Fundo branco
+                  foregroundColor: Colors.teal, // Cor de destaque (ripple, sombra)
+                  side: const BorderSide(color: Colors.grey, width: 1), // Opcional: Borda para destacar o branco
+                  minimumSize: const Size(250, 40), // Reduz o tamanho (largura e altura)
+                  elevation: 2, // Sombra suave
+                ),
               ),
             ),
             
