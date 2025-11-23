@@ -24,8 +24,8 @@ function print_err(){
 
 function copy_files(){
 	# Copiar o conteúdo html para o diretório de hospedagem do nginx.
-	print "Navegando para: $DIR_FRONT/releases/web"
-	cd "$DIR_FRONT/releases/web" || return 1
+	print "Navegando para: $DIR_ROOT/releases/web"
+	cd "$DIR_ROOT/releases/web" || return 1
 	if [[ "${DIR_SITE_WWW}" == '/' ]]; then
 		print_err "Diretório frontend inválido."
 		return 1
