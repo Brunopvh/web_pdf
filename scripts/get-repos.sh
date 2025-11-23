@@ -3,8 +3,8 @@
 
 [[ -z $HOME ]] && HOME=~/
 
-URL_REPO='https://gitlab.com/bschaves/web_pdf.git'
-BRANCH='dev'
+URL_REPO='git@github.com:Brunopvh/web_pdf.git'
+BRANCH='pbar'
 DIR_DOWN="$HOME/GIT"
 DIR_REPO="${DIR_DOWN}/${REPOS}" 
 mkdir -p "$DIR_DOWN"

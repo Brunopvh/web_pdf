@@ -2,6 +2,8 @@
 #
 # versão 2025-09-30
 #
+# Este script clona o repositório online, atualiza o HTLM presente na subpasta web
+# copiando os arquivos para /var/www/web_convert
 
 THIS_APPNAME='ONLINE-RELEASE'
 THIS_SCRIPT=$(readlink -f "$0")
@@ -10,8 +12,8 @@ DIR_ROOT=$(cd "$THIS_DIR" && cd .. && pwd) # Raiz do projeto
 LIB_COMMON="${DIR_ROOT}/scripts/library/common.sh"
 source "$LIB_COMMON" || exit 1
 
-readonly URL_PROJ='https://gitlab.com/bschaves/web_pdf.git'
-readonly BRANCH='dev'
+readonly URL_PROJ='git@github.com:Brunopvh/web_pdf.git'
+readonly BRANCH='pbar'
 readonly TMP_DIR=~/tmp
 readonly TMP_DOW="${TMP_DIR}/downloads"
 readonly TMP_UN="${TMP_DIR}/unpack"
