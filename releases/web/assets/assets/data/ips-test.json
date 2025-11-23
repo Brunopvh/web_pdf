@@ -1,0 +1,11 @@
+{
+    "ip_server": "http://127.0.0.1:5000",
+    "rt_join_pdf": "uploads/pdf/join",
+    "rt_split_pdf": "uploads/pdf/split",
+    "rt_ocr": "uploads/pdf/ocr",
+    "rt_convert_pdf": "uploads/pdf/join",
+    "rt_imgs_to_pdf": "uploads/pdf/img_to_pdf",
+    "rt_process_docs": "process_documents",
+    "rt_process_pattern": "process_pattern"
+}
+ 
