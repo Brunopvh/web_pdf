@@ -477,10 +477,14 @@ class ExtractName(ObserverTableExtraction):
         self.extractor: DocumentTextExtract = DocumentTextExtract()
         self.extractor.apply_threshold = False
         self.extractor.add_observer(self)
+        self.__output_dir_tables: sp.Directory = None
 
     @property
     def output_dir_tables(self) -> sp.Directory:
-        return self.output_dir.concat('Tabelas', create=True)
+        if self.__output_dir_tables is None:
+            self.__output_dir_tables = self.output_dir.concat('Tabelas')
+            self.__output_dir_tables.mkdir()
+        return self.__output_dir_tables
 
     def _show_error(self, txt: str):
         print()
@@ -492,16 +496,17 @@ class ExtractName(ObserverTableExtraction):
     def export_tables(self, tb: TableDocuments) -> None:
         if not self.save_tables:
             return
+        if tb.get_column(ColumnsTable.FILE_NAME)[0] is None:
+            return
+        
         origin_name = tb.get_column(ColumnsTable.FILE_NAME)[0]
         output_path = self.output_dir_tables.join_file(f'{origin_name}.xlsx')
         if isinstance(output_path, sp.File):
-            #print(f'DEBUG: Exportando ... {output_path.basename()}')
+            print(f'DEBUG: Exportando ... {output_path.basename()}')
             tb.to_data().to_excel(output_path.absolute(), index=False)
 
     def export_final_table(self):
-        if not self.save_tables:
-            return
-        self.extractor.to_excel(self.output_dir_tables.join_file('data.xlsx'))
+        self.extractor.to_excel(self.output_dir_tables.join_file('dados-renomeados.xlsx'))
 
     def receive_notify(self, notify: TableDocuments) -> None:
         pass
@@ -565,10 +570,17 @@ class ExtractNameInnerData(ExtractName):
         Organizar os arquivos com base nos dados de uma tabela/DataFrame
     """
 
-    def __init__(self, output_dir: sp.Directory, *, filters: FilterData = None):
+    def __init__(
+                self, 
+                output_dir: sp.Directory, *, 
+                filters: FilterData = None,
+                digitalized: EnumDigitalDoc = EnumDigitalDoc.GENERIC,
+            ):
         super().__init__(output_dir, filters=None)
         self.filter_data: FilterData = filters
+        self.digitalized: EnumDigitalDoc = digitalized
         self.name_inner_data: FindNameInnerData = FindNameInnerData(self.output_dir, filters=self.filter_data)
+        self.extractor.notify_observers = False
 
     def receive_notify(self, notify: TableDocuments) -> None:
         self._count += 1
@@ -577,12 +589,19 @@ class ExtractNameInnerData(ExtractName):
 
     def add_table(self, tb: TableDocuments):
         self.move_digitalized_doc(tb)
+        self.extractor.add_table(tb)
         self.export_tables(tb)
 
     def move_digitalized_doc(self, tb: TableDocuments) -> None:
-        mv_items = self.name_inner_data.get_new_name(
-            GenericDocument(tb, filters=None)
-        )
+        doc = None
+        if self.digitalized == EnumDigitalDoc.CARTA_CALCULO:
+            doc = CartaCalculo.create(tb)
+        elif self.digitalized == EnumDigitalDoc.EPI:
+            doc = FichaEpi.create(tb)
+        else:
+            doc = GenericDocument(tb, filters=self.filters)
+        
+        mv_items = self.name_inner_data.get_new_name(doc)
         move_path_files(mv_items, replace=False)
 
     def move_where_math_filename(self, files: list[sp.File]) -> None:

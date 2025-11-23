@@ -7,7 +7,7 @@ import convert_stream as cs
 import zipfile
 import os
 import soup_files as sp
-from organize_stream.document import CreateFileNames
+from organize_stream.document import CreateFileNames, ExtractNameInnerData
 from organize_stream.type_utils import (
     FilterData, FilterText, EnumDigitalDoc, DictOriginInfo, DictOutputInfo
 )
@@ -164,4 +164,67 @@ def thread_organize_documents(**kwargs: dict[str, Any]) -> None:
             print(f"\n[ERRO] thread_organize_documents falhou ao tentar salvar o arquivo ZIP: {e}")
         else:
             current_progress.update({"done": True, "zip_path": _output_zip})
+            
+            
+  
+def thread_organize_documents_with_sheet(**kwargs: dict[str, Any]) -> None:
+    """
+    Recebe um dicionario com as chaves
+    
+    df: pd.Dataframe: aponta para um dataframe com dados base para o filtro de dados
+    col_find: str: coluna onde o texto deve ser filtrado
+    col_new_name: str: coluna que aponta para o novo nome de arquivo.
+    files: list[File]: aponta para uma lista de arquivos.
+    task_id: str: id do processo.
+    output_dir: Directory: diretório destino dos arquivos.
+    """
+    # Diretório temporário para saída de dados.
+    temp_dir: sp.Directory = kwargs["output_dir"]
+    temp_dir.mkdir()
+    list_documents_files: list[sp.File] = kwargs["files"]
+    _output_zip: str = temp_dir.join_file("resultado.zip").absolute()
+    progress_data: dict[str, Any] = get_id_progress_state(kwargs['task_id'])
+    progress_data['total'] = len(list_documents_files)
+    progress_data['current'] = 0
+    find_name_inner_data: ExtractNameInnerData
+    
+    # Renomear os arquivos
+    try:
+        filter_data = FilterData(
+            kwargs["df"], col_find=kwargs["col_find"], col_new_name=kwargs["col_new_name"], cols_in_name=[]
+        )
+        find_name_inner_data: ExtractNameInnerData = ExtractNameInnerData(temp_dir, filters=filter_data)
+        find_name_inner_data.save_tables = False
+        find_name_inner_data.extractor.notify_observers = False
+        
+        for num_prog, file_doc in enumerate(list_documents_files):
+            progress_data['current'] = num_prog + 1
+            if file_doc.is_image():
+                tb_img = find_name_inner_data.extractor.read_image(file_doc)
+                if (tb_img is not None) and (tb_img.length > 0):
+                    find_name_inner_data.add_table(tb_img)
+            elif file_doc.is_pdf():
+                tb_pdf = find_name_inner_data.extractor.read_document(file_doc)
+                if (tb_pdf is not None) and (tb_pdf.length > 0):
+                    find_name_inner_data.add_table(tb_pdf)
+                    
+        find_name_inner_data.export_final_table()      
+        # Gerar uma lista de arquivos
+        input_files = sp.InputFiles(temp_dir)
+        final_files: list[sp.File] = input_files.pdfs
+        final_files.extend(input_files.images)
+        final_files.extend(input_files.sheets)
+        
+        #zip_buffer = BytesIO()
+        with zipfile.ZipFile(_output_zip, "w") as zipf:
+            for doc_file in final_files:
+                _doc_bytes: bytes = doc_file.path.read_bytes()
+                zipf.writestr(doc_file.basename(), _doc_bytes)
+        #zip_buffer.seek(0)
+    except Exception as e:
+        progress_data.update({"done": True, "zip_path": None})
+        print(f"\n[ERRO] Falha ao tentar gerar o arquivo ZIP: {e}")
+    else:
+        progress_data.update({"done": True, "zip_path": _output_zip})
+    
         
