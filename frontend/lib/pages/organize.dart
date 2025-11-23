@@ -72,7 +72,7 @@ class _OrganizePageState extends State<OrganizePage> {
 
   // ============== NOVO MÉTODO: MONITORAR PROGRESSO ==============
   Future<void> _pollProgress(String ipServer, String taskId) async {
-    Timer.periodic(const Duration(milliseconds: 700), (timer) async {
+    Timer.periodic(const Duration(milliseconds: 1500), (timer) async {
       var progressUri = Uri.parse('$ipServer/progress/$taskId');
       
       try {
@@ -175,9 +175,9 @@ class _OrganizePageState extends State<OrganizePage> {
     }
   }
 
-  // ============== MÉTODO ATUALIZADO: processFiles ==============
+  // ============== MÉTODO processFiles ==============
   Future<void> processFiles() async {
-    // ... (Validações de hasSheet e patternController permanecem inalteradas) ...
+    // Verificar se o usuário selecionou pelo menos um arquivo válido.
     if (pdfFiles.isEmpty && imageFiles.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selecione pelo menos um PDF ou imagem')),
@@ -185,7 +185,8 @@ class _OrganizePageState extends State<OrganizePage> {
       return;
     }
 
-
+    // Se o usuário selecionar uma planilha, é obrigatório digitar o nome da coluna
+    // onde os dados serão filtrados.
     final hasSheet = xlsxFile != null;
     if (hasSheet && columnController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -193,7 +194,9 @@ class _OrganizePageState extends State<OrganizePage> {
       );
       return;
     }
+
     // Só exige o padrão de texto SE NÃO HOUVER planilha E o tipo for DOCUMENTO GENÉRICO.
+    // Para os outros tipos de documento, a caixa de texto pode estar vazia.
     if (!hasSheet && selectedDocumentType == 'DOCUMENTO GENÉRICO' && patternController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Para DOCUMENTO GENÉRICO, digite um texto/busca na caixa apropriada!')),
@@ -201,6 +204,7 @@ class _OrganizePageState extends State<OrganizePage> {
       return;
     }
 
+    // Inicia o status da barra de progresso
     setState(() {
       isProcessing = true;
       progress = 0.0;
@@ -218,9 +222,7 @@ class _OrganizePageState extends State<OrganizePage> {
 
       var request = http.MultipartRequest("POST", uri);
       
-      // ... (Adicionar PDFs, imagens, XLSX, fields de column_name e pattern permanecem inalterados) ...
-      
-      // Adicionar PDFs e imagens
+      // Adicionar PDFs, imagens e XLSX
       for (final file in [...pdfFiles, ...imageFiles]) {
         if (kIsWeb) {
           request.files.add(http.MultipartFile.fromBytes(
@@ -236,7 +238,7 @@ class _OrganizePageState extends State<OrganizePage> {
         }
       }
 
-      // XLSX ou padrão
+      // Usar o filtro com  XLSX ou padrão de texto.
       if (xlsxFile != null) {
         if (kIsWeb) {
           request.files.add(http.MultipartFile.fromBytes(
@@ -248,45 +250,47 @@ class _OrganizePageState extends State<OrganizePage> {
         }
       }
 
-      // Envia o nome da coluna associada à planilha
+      // Envia o nome da coluna associada à planilha (caso o usuário escolher esta opção)
       request.fields['column_name'] = columnController.text;
+      
       // Envia o padrão textual caso não haja planilha
       if (!hasSheet) {
         request.fields['pattern'] = patternController.text;
       }
-      // Envia o tipo de documento selecionado
-      request.fields['document_type'] = selectedDocumentType;
+
+      // Envia o tipo de documento selecionado no combobox.
+      request.fields['digitalized_type'] = selectedDocumentType;
+
       // Envia requisição e aguarda a resposta que contém o task_id
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
 
-
       if (response.statusCode == 200) {
         // A resposta DEVE ser o JSON contendo o task_id
         final jsonResponse = jsonDecode(response.body);
-        
         String? receivedTaskId = jsonResponse['task_id'];
         
         if (receivedTaskId != null) {
-          // 1. Armazena o ID
+          // Armazena o ID do processo no servidor.
           setState(() {
             _taskId = receivedTaskId;
           });
-          // 2. Inicia o monitoramento de progresso
+          // Inicia o monitoramento de progresso, para atualizar a barra de progresso
+          // na interface.
           _pollProgress(ipServer, receivedTaskId);
         } else {
           throw Exception("ID da tarefa não recebido do servidor.");
         }
         
       } else {
-        // ... (Tratamento de erro) ...
+        // Tratamento de erro
         String errorMessage =
-            '❌ Erro (${response.statusCode}): Servidor retornou um erro inesperado.';
+            'Erro (${response.statusCode}): Servidor retornou um erro inesperado.';
 
         try {
           final jsonResponse = jsonDecode(response.body);
           errorMessage =
-              '❌ Erro (${response.statusCode}): ${jsonResponse['error'] ?? 'Erro desconhecido'}';
+              'Erro (${response.statusCode}): ${jsonResponse['error'] ?? 'Erro desconhecido'}';
         } catch (_) {}
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -295,7 +299,7 @@ class _OrganizePageState extends State<OrganizePage> {
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('⚠️ Erro de conexão ou processamento: $e')),
+        SnackBar(content: Text('Erro de conexão ou processamento: $e')),
       );
     } finally {
       // isProcessing será definido como false pelo _pollProgress

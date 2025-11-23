@@ -344,16 +344,19 @@ async def organize_documents_with_pattern(
             pdfs: list[UploadFile] = File(default=[]),
             images: list[UploadFile] = File(default=[]),
             pattern: str = Form(default=None), 
-            document_type: str = Form(default=None),
+            digitalized_type: str = Form(default=None),
         ):
     """
     Rota alternativa usada quando o usuário digita um padrão de texto
     ao invés de enviar planilha XLSX e nome de coluna.
     Retorna um ZIP com os arquivos processados.
+    
+    :param document_type: CARTA/EPI/GERNÉRICO
     """
     if not pattern:
-        if not document_type:
-            e = "O parâmetro 'pattern' é obrigatório nesta rota."
+        if not digitalized_type:
+            e = "O parâmetro 'pattern' é obrigatório para documentos genéricos."
+            print()
             return JSONResponse({"error": str(e)}, status_code=500)
 
     task_id = str(uuid.uuid4())
@@ -362,42 +365,35 @@ async def organize_documents_with_pattern(
     total_files = len(images) + len(pdfs)
     progress_data['total'] = total_files
     
-    input_files_image: ListItems[DictOriginInfo] = ListItems()
-    input_files_pdf: ListItems[DictOriginInfo] = ListItems()
-    
-    # Imagens
-    image_file: UploadFile
-    for image_file in images:
-        if image_file is None:
-            continue
-        current = DictOriginInfo()
-        extension_file = f".{image_file.filename.split('.')[-1]}"
-        image_bytes: bytes = await image_file.read()
-        current.set_file_bytes(image_bytes)
-        current.set_filename_with_extension(image_file.filename)
-        current.set_extension(extension_file)
-        input_files_image.append(current)
-        
-    progress_data['current'] = total_files / 2
-    for file_pdf in pdfs:
-        if file_pdf is None:
-            continue
-        current = DictOriginInfo()
-        extension_file = f".{file_pdf.filename.split('.')[-1]}"
-        pdf_bytes: bytes = await file_pdf.read()
-        current.set_file_bytes(pdf_bytes)
-        current.set_filename_with_extension(file_pdf.filename)
-        current.set_extension(extension_file)
-        input_files_pdf.append(current)
+    pdfs.extend(images)
+    images.clear()
+    input_files_document: ListItems[DictOriginInfo] = ListItems()
+    try:
+        for document in pdfs:
+            if document is None:
+                continue
+
+            file_name = document.filename
+            if file_name is None:
+                continue
+            current = DictOriginInfo()
+            extension_file = f".{file_name.split('.')[-1]}"
+            current.set_name(file_name.replace(extension_file, ''))
+            current.set_filename_with_extension(file_name)
+            current.set_extension(extension_file)
+            current.set_file_bytes(await document.read())
+            input_files_document.append(current)
+    except Exception as e:
+        print(e)
+        return {"message": "Falha ao tentar ler os arquivos", "task_id": task_id}
         
     send_args: dict[str, object] = {
         'task_id': task_id,
-        'images': input_files_image,
-        'pdfs': input_files_pdf,
+        'pdfs': input_files_document,
+        'images': ListItems(),
         'pattern': pattern,
-        'document_type': document_type,
+        'digitalized_type': digitalized_type,
     }
-    progress_data["total"] = total_files
     thread = threading.Thread(target=thread_organize_documents, kwargs=send_args)
     thread.start()
     return {"message": "Processamento iniciado", "task_id": task_id}

@@ -116,9 +116,9 @@ def thread_organize_documents(**kwargs: dict[str, Any]) -> None:
     current_progress['current'] = 0
     
     name_finder: CreateFileNames
-    if kwargs['document_type'] == 'EPIS':
+    if kwargs['digitalized_type'] == 'EPIS':
         name_finder = CreateFileNames(lib_digitalized=EnumDigitalDoc.EPI)
-    elif kwargs['document_type'] == 'CARTAS':
+    elif kwargs['digitalized_type'] == 'CARTAS':
         name_finder = CreateFileNames(lib_digitalized=EnumDigitalDoc.CARTA_CALCULO)
     else:
         if kwargs['pattern'] is None:
@@ -131,16 +131,9 @@ def thread_organize_documents(**kwargs: dict[str, Any]) -> None:
     final_bytes: BytesIO | None
     try:
         count = 0
-        files_image: ListItems[DictOriginInfo] = kwargs['images']
-        files_pdf: ListItems[DictOriginInfo] = kwargs['pdfs']
-        total = len(files_image) + len(files_pdf)
-        
-        for num, file_info in enumerate(files_image):
-            current_progress["current"] = count
-            count += 1
-            print(f'{num+1}/{total}')
-            name_finder.add_disk_file(file_info) 
-        for num, file_info in enumerate(files_pdf):
+        documents: ListItems[DictOriginInfo] = kwargs['pdfs']
+        total = len(documents)
+        for num, file_info in enumerate(documents):
             current_progress["current"] = count
             count += 1
             print(f'{num+1}/{total}')

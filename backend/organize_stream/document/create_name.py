@@ -6,7 +6,7 @@ import tempfile
 from typing import Callable
 from io import BytesIO
 from typing import Union
-from sheet_stream import TableDocuments, ColumnsTable, ListItems
+from sheet_stream import TableDocuments, ColumnsTable, ListItems, ListColumnBody
 from organize_stream.type_utils import (
     FilterText, FilterData, DigitalizedDocument, EnumDigitalDoc,
     ObserverTableExtraction, DictKeyWordFiles, DiskFile,
@@ -229,11 +229,19 @@ class CreateFileNames(object):
         filename_str = _doc.get_output_name_str()
         src_extension = _doc.extension_file
         if (filename_str is None) or (filename_str == 'nan') or (filename_str == ''):
-            print(f'Novo nome não gerado ... {tb.get_row(0)}')
+            print(
+                f'{__class__.__name__} Falha, o documento digitalizado não gerou um nome de saída =>> {tb.get_row(0)}'
+                )
             return None
         if (src_extension is None) or (src_extension == '') and (src_extension == 'nan'):
-            print(f'Novo nome não gerado ... {tb.get_row(0)}')
+            print(
+                f'''
+                    {__class__.__name__} Falha, a tabela não possui extensão de arquivo na coluna:
+                    {ColumnsTable.FILETYPE.value} =>> {tb.get_column(ColumnsTable.FILETYPE.value)}
+                '''
+                )
             return None
+        
         output_info.set_extension(src_extension)
         output_info.set_name(filename_str)
         output_info.set_filename_with_extension(f'{filename_str}{src_extension}')
@@ -290,7 +298,12 @@ class CreateFileNames(object):
             Gera um objeto DictKeyWordFiles() que pode ser exportado/salvo no disco posteriormente.
         """
         image_info: tuple[DictOriginInfo, cs.ImageObject] = _get_info_from_img(file)
-        dest_info: DictOutputInfo | None = self.create_output_info(self.extractor.read_image(image_info[1]))
+        tb = self.extractor.read_image(image_info[1])
+        if tb.get_column(ColumnsTable.FILETYPE).length == 0:
+            _new = [image_info[0].get_extension()] * tb.get_column(ColumnsTable.TEXT).length
+            tb.set_column(ListColumnBody(ColumnsTable.FILETYPE.value, _new))
+            
+        dest_info: DictOutputInfo | None = self.create_output_info(tb)
         __kw = DictKeyWordFiles()
         __kw.set_origin_file(image_info[0])
         if dest_info is not None:
@@ -304,10 +317,18 @@ class CreateFileNames(object):
             Gera um KeyWordsFileName que pode ser exportado/salvo no disco posteriormente.
         """
         pdf_info: tuple[DictOriginInfo, cs.DocumentPdf] = _get_info_from_pdf(file)
-        dest_info = self.create_output_info(self.extractor.read_document(pdf_info[1]))
         __kw = DictKeyWordFiles()
         __kw.set_origin_file(pdf_info[0])
-        __kw.set_output_file(dest_info)
+        tb = self.extractor.read_document(pdf_info[1])
+        if tb.get_column(ColumnsTable.FILETYPE).length == 0:
+            _new = [pdf_info[0].get_extension()] * tb.get_column(ColumnsTable.TEXT).length
+            tb.set_column(ListColumnBody(ColumnsTable.FILETYPE.value, _new))
+        
+        dest_info = self.create_output_info(tb)
+        if dest_info is not None:
+            __kw.set_output_file(dest_info)
+        else:
+            __kw.set_output_file(DictOutputInfo())
         return __kw
 
     def rename_image(self, image: sp.File, output_dir: sp.Directory):
@@ -337,8 +358,6 @@ class CreateFileNames(object):
         self._list_key_filenames.append(__k_doc)
 
     def add_disk_file(self, disk_file: DictFileInfo):
-        if not isinstance(disk_file, DictFileInfo):
-            raise DiskFileInvalidError(f'Use: DiskFileInfo(), não {type(disk_file)}')
         if disk_file.get_extension() is None:
             raise DiskFileInvalidError(f'Use: Adicione uma extensão de arquivo em DiskFileInfo')
         if disk_file.get_file_bytes() is None:
@@ -353,20 +372,28 @@ class CreateFileNames(object):
         elif disk_file.get_extension() in ['.pdf']:
             doc_pdf = cs.DocumentPdf.create_from_bytes(BytesIO(disk_file.get_file_bytes()))
             tb = self.extractor.read_document(doc_pdf)
+        else:
+            print(f'{__class__.__name__} DEBUG: Falha ao tentar identificar o documento =>> {disk_file.get_name()}')
+            return
                 
         if tb is None:
-            print(f'\nDEBUG: arquivo NÃO adiconado ... {disk_file.get_extension()}')
+            print(f'{__class__.__name__} Arquivo NÃO adiconado A tabela é nula *** {disk_file.get_name()}')
             return
         if tb.length == 0:
-            print(f'\nDEBUG: arquivo NÃO adiconado, devido a tabela estar vazia')
+            print(f'{__class__.__name__} Arquivo NÃO adiconado a tabela gerada está vazia => {disk_file.get_name()}')
             return
-        output_info = self.create_output_info(tb)
-        if output_info is not None:
-            if output_info.get_extension() is None:
-                ext = disk_file.get_extension()
-                output_info.set_filename_with_extension(f'{output_info.get_filename_with_extension()}{ext}')
-            key_info.set_output_file(output_info)
-            self._list_key_filenames.append(key_info)
+        
+        # Antes de gerar o dicionário com as informações de destino, precisamos adicionar
+        # A extensão de arquivo a tabela gerada.
+        _new = [disk_file.get_extension()] * tb.get_column(ColumnsTable.TEXT.value).length
+        tb.set_column(ListColumnBody(ColumnsTable.FILETYPE, _new))
+        
+        dict_output: DictOutputInfo | None = self.create_output_info(tb)
+        if dict_output is None:
+            print(f'{__class__.__name__} Falha ao tentar gerar o nome do arquivo de destino => {disk_file.get_name()}')
+            return
+        key_info.set_output_file(dict_output)
+        self._list_key_filenames.append(key_info)
             
     def export_new_filenames(self, output_dir: sp.Directory) -> None:
         """
