@@ -41,11 +41,11 @@ sys.path.insert(0, DIR_MOD_ORGANIZE)
 
 
 from organize_stream.type_utils import (
-    FilterText, FilterData, LibDigitalized
+    FilterText, FilterData, EnumDigitalDoc
 )
 from organize_stream.document.create_name import (
-    CreateNewFile, ExtractNameInnerData, ExtractNameInnerText,
-    DiskFileInfo, DiskOriginInfo, DiskOutputInfo,
+    CreateFileNames, ExtractNameInnerData, ExtractNameInnerText,
+    DictFileInfo, DictOriginInfo, DictOutputInfo,
 )
 from sheet_stream import ReadFileSheet, LibSheet
 
@@ -362,19 +362,19 @@ async def organize_documents_with_pattern(
     total_files = len(images) + len(pdfs)
     progress_data['total'] = total_files
     
-    input_files_image: ListItems[DiskOriginInfo] = ListItems()
-    input_files_pdf: ListItems[DiskOriginInfo] = ListItems()
+    input_files_image: ListItems[DictOriginInfo] = ListItems()
+    input_files_pdf: ListItems[DictOriginInfo] = ListItems()
     
     # Imagens
     image_file: UploadFile
     for image_file in images:
         if image_file is None:
             continue
-        current = DiskOriginInfo()
+        current = DictOriginInfo()
         extension_file = f".{image_file.filename.split('.')[-1]}"
         image_bytes: bytes = await image_file.read()
         current.set_file_bytes(image_bytes)
-        current.set_filename(image_file.filename)
+        current.set_filename_with_extension(image_file.filename)
         current.set_extension(extension_file)
         input_files_image.append(current)
         
@@ -382,11 +382,11 @@ async def organize_documents_with_pattern(
     for file_pdf in pdfs:
         if file_pdf is None:
             continue
-        current = DiskOriginInfo()
+        current = DictOriginInfo()
         extension_file = f".{file_pdf.filename.split('.')[-1]}"
         pdf_bytes: bytes = await file_pdf.read()
         current.set_file_bytes(pdf_bytes)
-        current.set_filename(file_pdf.filename)
+        current.set_filename_with_extension(file_pdf.filename)
         current.set_extension(extension_file)
         input_files_pdf.append(current)
         

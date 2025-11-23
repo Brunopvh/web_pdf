@@ -2,22 +2,24 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import TypeAlias, Union
 from io import BytesIO
-from organize_stream.utils import sp, sheet, ListString, ListColumnBody
+from organize_stream.utils import sp  #sheet, ListString, ListColumnBody
 from organize_stream.erros import *
-from sheet_stream.type_utils import get_hash_from_bytes, ColumnsTable
+from sheet_stream.type_utils import (
+    get_hash_from_bytes, ColumnsTable, ListString, ListColumnBody
+)
 import shutil
 
 DiskFile: TypeAlias = Union[str, sp.File, bytes, BytesIO]
 
 
-class LibDigitalized(StrEnum):
+class EnumDigitalDoc(StrEnum):
 
     GENERIC = 'generic'
     CARTA_CALCULO = 'carta_calculo'
     EPI = 'epi'
 
 
-class KeyFiles(StrEnum):
+class ColumnsKeyFiles(StrEnum):
 
     SRC_ORIGIN_FILE = 'SRC_FILE_PATH'
     SRC_ORIGIN_NAME = 'FILE_NAME'
@@ -27,15 +29,20 @@ class KeyFiles(StrEnum):
     UNIQUE_KEY = 'UNIQUE_KEY'
 
 
-class DiskFileInfo(dict):
+class DictFileInfo(dict):
+    """
+    Guardar informações sobre um arquivo
+    Nome, diretório de origem, extensão do arquivo entre outras informações.
+    """
 
     def __init__(self):
         super().__init__({})
-        self[ColumnsTable.FILETYPE.value] = None
-        self[ColumnsTable.FILE_PATH.value] = None
-        self[ColumnsTable.FILE_NAME.value] = None
-        self[ColumnsTable.DIR.value] = None
-        self['BYTES'] = None
+        self[ColumnsTable.FILE_NAME.value] = None  # Nome do arquivo com a extensão
+        self[ColumnsTable.FILETYPE.value] = None  # Extensão do arquivo .txt, png, .pdf ...
+        self[ColumnsTable.FILE_PATH.value] = None  # Caminho absoluto do arquivo no disco
+        self[ColumnsTable.DIR.value] = None  # Diretório de origem do arquivo.
+        self['BYTES'] = None  # Os bytes do arquivo
+        self['FILENAME'] = None
 
     def __hash__(self):
         if self.get_abspath() is not None:
@@ -59,9 +66,6 @@ class DiskFileInfo(dict):
 
     def set_abspath(self, file_path: sp.File | None) -> None:
         self[ColumnsTable.FILE_PATH.value] = file_path
-        #self.set_filename(file_path.basename())
-        #self.set_extension(file_path.extension())
-        #self.set_file_bytes(file_path.path.read_bytes())
 
     def get_type_document(self) -> sp.LibraryDocs:
         if self.get_extension() in sp.LibraryDocs.IMAGE:
@@ -82,16 +86,18 @@ class DiskFileInfo(dict):
     def set_extension(self, extension: str | None) -> None:
         self[ColumnsTable.FILETYPE.value] = extension
 
-    def get_filename(self) -> str | None:
-        if self[ColumnsTable.FILE_NAME.value] is not None:
-            return self[ColumnsTable.FILE_NAME.value]
-        if self[ColumnsTable.FILE_PATH.value] is None:
-            return None
-        fp: sp.File = self[ColumnsTable.FILE_PATH.value]
-        return fp.basename()
+    def get_filename_with_extension(self) -> str | None:
+        return self[ColumnsTable.FILE_NAME.value]
 
-    def set_filename(self, filename: str | None) -> None:
+    def set_filename_with_extension(self, filename: str | None) -> None:
         self[ColumnsTable.FILE_NAME.value] = filename
+
+    def get_name(self) -> str | None:
+        """Retorna o nome do arquivo sem a extensão"""
+        return self['FILENAME']
+
+    def set_name(self, name: str | None):
+        self['FILENAME'] = name
 
     def size(self) -> int:
         return len(self)
@@ -116,21 +122,20 @@ class DiskFileInfo(dict):
     def id(self) -> str | None:
         if self.get_abspath() is not None:
             return self.get_abspath().basename()
+        if self.get_extension() is not None:
+            raise ExtensionFileEmptyError(f'Adicione uma extensão de arquivo em {self.get_filename_with_extension()}')
         if self.get_file_bytes() is not None:
-            ext = self.get_extension()
-            if ext is None:
-                return get_hash_from_bytes(self.get_file_bytes())
-            return f'{get_hash_from_bytes(self.get_file_bytes())}{ext}'
-        return None
+            raise ExtensionFileEmptyError(f'{__class__.__name__} os bytes do arquivo não foram adicionados')
+        return f'{get_hash_from_bytes(self.get_file_bytes())}{self.get_extension()}'
 
 
-class DiskOriginInfo(DiskFileInfo):
+class DictOriginInfo(DictFileInfo):
 
     def __init__(self):
         super().__init__()
 
 
-class DiskOutputInfo(DiskFileInfo):
+class DictOutputInfo(DictFileInfo):
 
     def __init__(self):
         super().__init__()
@@ -139,14 +144,14 @@ class DiskOutputInfo(DiskFileInfo):
 class DynamicFile(object):
 
     def __init__(self, file: DiskFile):
-        self.disk_file_info = DiskFileInfo()
+        self.disk_file_info = DictFileInfo()
 
         if isinstance(file, sp.File):
             self.disk_file_info['SRC_INPUT'] = 'FILE'
             self.disk_file_info.set_abspath(file)
             self.disk_file_info.set_extension(file.extension())
             self.disk_file_info.set_file_bytes(file.path.read_bytes())
-            self.disk_file_info.set_filename(file.basename())
+            self.disk_file_info.set_filename_with_extension(file.basename())
         elif isinstance(file, bytes):
             self.disk_file_info['SRC_INPUT'] = 'BYTES'
             self.disk_file_info.set_file_bytes(file)
@@ -159,7 +164,7 @@ class DynamicFile(object):
             self.disk_file_info['SRC_INPUT'] = 'FILE'
             self.disk_file_info.set_extension(file.extension())
             self.disk_file_info.set_file_bytes(file.path.read_bytes())
-            self.disk_file_info.set_filename(file.basename())
+            self.disk_file_info.set_filename_with_extension(file.basename())
         else:
             raise InvalidSrcFile(
                 f'{__class__.__name__} Arquivo inválido ... {file}, use ... bytes|BytesIO|File|str'
@@ -208,8 +213,8 @@ class DynamicFile(object):
 
     def get_file_name(self) -> str | None:
         """Retorna o nome do arquivo com a extensão"""
-        if self.disk_file_info.get_filename() is not None:
-            return self.disk_file_info.get_filename()
+        if self.disk_file_info.get_filename_with_extension() is not None:
+            return self.disk_file_info.get_filename_with_extension()
         extension = self.disk_file_info.get_extension()
         if extension is None:
             raise ExtensionFileEmptyError('Adicione uma extensão de arquivo .png|.pdf|.jpg ...')
@@ -226,7 +231,7 @@ class DynamicFile(object):
             self.disk_file_info.set_abspath(file)
             self.disk_file_info.set_extension(file.extension())
             self.disk_file_info.set_file_bytes(file.path.read_bytes())
-            self.disk_file_info.set_filename(file.basename())
+            self.disk_file_info.set_filename_with_extension(file.basename())
         elif isinstance(file, bytes):
             self.disk_file_info['SRC_INPUT'] = 'BYTES'
             self.disk_file_info.set_file_bytes(file)
@@ -239,7 +244,7 @@ class DynamicFile(object):
             self.disk_file_info['SRC_INPUT'] = 'FILE'
             self.disk_file_info.set_extension(file.extension())
             self.disk_file_info.set_file_bytes(file.path.read_bytes())
-            self.disk_file_info.set_filename(file.basename())
+            self.disk_file_info.set_filename_with_extension(file.basename())
 
     def get_bytes(self) -> bytes | None:
         return self.disk_file_info.get_file_bytes()
@@ -257,32 +262,38 @@ class DestFilePath(sp.File):
         super().__init__(filename)
 
 
-class KeyWordsFileName(dict):
+class DictKeyWordFiles(dict):
     """
-        Dicionário que contém informações de um arquivo no disco, bytes|BytesIO|File|str.
-    A chave KeyFiles.NEW_FILE_NAME.value - pode ser definida futuramente para guardar o
-    novo nome do arquivo (bastando concatenar com o diretório de saída para obter o caminho
-    absoluto do novo arquivo).
 
     """
 
     def __init__(self):
         super().__init__({})
-        self[KeyFiles.SRC_ORIGIN_FILE.value] = DiskFileInfo()
-        self[KeyFiles.NEW_DEST_FILE.value] = DiskFileInfo()
-        self[KeyFiles.UNIQUE_KEY.value] = None
+        self[ColumnsKeyFiles.SRC_ORIGIN_FILE.value]: DictOriginInfo = DictOriginInfo()
+        self[ColumnsKeyFiles.NEW_DEST_FILE.value]: DictOutputInfo = DictOutputInfo()
 
-    def get_origin_file(self) -> DiskFileInfo:
-        return self[KeyFiles.SRC_ORIGIN_FILE.value]
+    def get_origin_file(self) -> DictOriginInfo:
+        return self[ColumnsKeyFiles.SRC_ORIGIN_FILE.value]
 
-    def set_origin_file(self, value: DiskFileInfo) -> None:
-        self[KeyFiles.SRC_ORIGIN_FILE.value] = value
+    def set_origin_file(self, value: DictFileInfo) -> None:
+        self[ColumnsKeyFiles.SRC_ORIGIN_FILE.value] = value
 
-    def get_output_file(self) -> DiskFileInfo:
-        return self[KeyFiles.NEW_DEST_FILE.value]
+    def get_output_file(self) -> DictOutputInfo:
+        return self[ColumnsKeyFiles.NEW_DEST_FILE.value]
 
-    def set_output_file(self, value: DiskFileInfo) -> None:
-        self[KeyFiles.NEW_DEST_FILE.value] = value
+    def set_output_file(self, value: DictFileInfo) -> None:
+        self[ColumnsKeyFiles.NEW_DEST_FILE.value] = value
+
+    def set_output_dir(self, d: sp.Directory) -> None:
+        if not isinstance(d, sp.Directory):
+            return
+        if self[ColumnsKeyFiles.NEW_DEST_FILE.value] is not None:
+            self[ColumnsKeyFiles.NEW_DEST_FILE.value].set_directory(d)
+            if self.get_output_file() is not None:
+                if self.get_output_file().get_filename_with_extension() is not None:
+                    self[ColumnsKeyFiles.NEW_DEST_FILE.value].set_abspath(
+                        d.join_file(self.get_output_file().get_filename_with_extension())
+                    )
 
     def __repr__(self):
         return f'KeyWordsFileNames: {super().__repr__()}'
@@ -298,30 +309,22 @@ class KeyWordsFileName(dict):
     def keys(self) -> ListString:
         return ListString(list(super().keys()))
 
-    def save(self, output_dir: sp.Directory) -> tuple[DiskFileInfo, DiskFileInfo | None, bool]:
+    def save_bytes(self, output_dir: sp.Directory) -> tuple[DictOriginInfo, DictOutputInfo | None, bool]:
         """
             Salva os bytes do arquivo original no novo caminho absoluto gerado.
-
-        :param output_dir: Diretório para concatenar com o nome do novo arquivo
-        (chave: KeyFiles.NEW_FILE_NAME.value).
-
-        :return: Tuple (DiskFileInfo, DiskFileInfo | None, bool).
-        Se a operação falhar o terceiro elemento da tuple será False, se não, será True.
-        tuple[0] -> DiskFileInfo arquivo original
-        tuple[1] -> DiskFileInfo caminho absoluto do arquivo salvo no disco ou None se a operação falhar.
-        tuple[2] -> bool sucesso ou erro.
-
         """
-        if self.get_output_file() is None:
-            return self.get_origin_file(), None, False
-        if self.get_output_file().get_filename() is None:
-            return self.get_origin_file(), None, False
+        if self.get_output_file().get_filename_with_extension() is None:
+            raise DiskFileInvalidError()
         if self.get_output_file().get_file_bytes() is None:
-            return self.get_origin_file(), None, False
+            if self.get_origin_file().get_file_bytes() is None:
+                raise DiskFileInvalidError()
+            out: DictOutputInfo = self.get_output_file()
+            out.set_file_bytes(self.get_origin_file().get_file_bytes())
+            self.set_output_file(out)
 
         try:
             output_dir.mkdir()
-            output_file: sp.File = output_dir.join_file(f'{self.get_output_file().get_filename()}')
+            output_file: sp.File = output_dir.join_file(self.get_output_file().get_filename_with_extension())
 
             with open(output_file.absolute(), 'wb') as f:
                 f.write(self.get_output_file().get_file_bytes())
@@ -331,20 +334,20 @@ class KeyWordsFileName(dict):
         else:
             return self.get_origin_file(), self.get_output_file(), False
 
-    def move(self, output_dir: sp.Directory) -> tuple[DiskFileInfo, DiskFileInfo | None, bool]:
-        if self.get_origin_file().get_abspath() is None:
-            return self.get_origin_file(), None, False
+    def move(self, output_dir: sp.Directory) -> tuple[DictFileInfo, DictFileInfo | None, bool]:
+        if self.get_origin_file() is None:
+            raise DiskFileInvalidError()
         if self.get_output_file() is None:
-            return self.get_origin_file(), None, False
-        if self.get_output_file().get_filename() is None:
-            return self.get_origin_file(), None, False
+            raise DiskFileInvalidError()
+        if self.get_output_file().get_abspath() is None:
+            raise DiskFileInvalidError()
+        if self.get_output_file().get_name() is None:
+            raise DiskFileInvalidError()
 
         _count = 0
-        _name = self.get_output_file().get_filename()
+        _file_name = self.get_output_file().get_name()
         _ext = self.get_output_file().get_extension()
-        _file_name = _name.replace(_ext, '')
-
-        output_file: sp.File = output_dir.join_file(f'{self.get_output_file().get_filename()}')
+        output_file: sp.File = output_dir.join_file(self.get_output_file().get_filename_with_extension())
         if output_file.exists():
             while True:
                 _count += 1

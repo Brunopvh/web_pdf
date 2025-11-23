@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import pandas as pd
-from organize_stream.erros import TableFileEmptyError
+from organize_stream.erros import TableFileEmptyError, ExtensionFileEmptyError
 from sheet_stream import (
     TableDocuments, ArrayString, ColumnsTable,
     ListColumnBody
@@ -49,9 +49,11 @@ class DigitalizedDocument(ABC):
     default_filter: FilterText | None = None
 
     def __init__(self, tb: TableDocuments, *, filters: FilterText):
+        if tb.length == 0:
+            raise TableFileEmptyError(f'{__class__.__name__} A tabela de arquivos não pode estar vazia!')
+        if tb.get_column(ColumnsTable.FILETYPE).length == 0:
+            raise ExtensionFileEmptyError(f'{__class__.__name__} Adicione uma extensão de arquivo a tabela!')
         self.tb: TableDocuments = tb
-        if self.tb.length == 0:
-            raise TableFileEmptyError('A tabela de arquivos não pode estar vazia!')
         self.filters: FilterText = filters
 
     @property
@@ -64,7 +66,7 @@ class DigitalizedDocument(ABC):
         if value.is_empty:
             return None
         if (value[0] == '') or (value[0] == 'nan') or (value[0] == 'None') \
-                or (value[0] == '-') or (value[0] == 'NaT'):
+                or (value[0] == '-') or (value[0] == 'NaT') or (value[0] is None):
             return None
         try:
             file_path = sp.File(value[0])
@@ -72,9 +74,7 @@ class DigitalizedDocument(ABC):
             print(e)
             return None
         else:
-            if file_path.path.exists():
-                return file_path
-            return None
+            return file_path
 
     @property
     def dir_path_origin(self) -> sp.Directory | None:
@@ -82,7 +82,7 @@ class DigitalizedDocument(ABC):
         if value.is_empty:
             return None
         if (value[0] == '') or (value[0] == 'nan') or (value[0] == 'None') \
-                or (value[0] == '-') or (value[0] == 'NaT'):
+                or (value[0] == '-') or (value[0] == 'NaT') or (value[0] is None):
             return None
         try:
             _dir_path = sp.Directory(value[0])
@@ -90,9 +90,7 @@ class DigitalizedDocument(ABC):
             print(e)
             return None
         else:
-            if _dir_path.path.exists():
-                return _dir_path
-            return None
+            return _dir_path
 
     @property
     def extension_file(self) -> str | None:
@@ -100,12 +98,12 @@ class DigitalizedDocument(ABC):
         if value.is_empty:
             return None
         if (value[0] == '') or (value[0] == 'nan') or (value[0] == 'None') \
-                or (value[0] == '-') or (value[0] == 'NaT'):
+                or (value[0] == '-') or (value[0] == 'NaT') or (value[0] is None):
             return None
         return value[0]
 
     @property
-    def lines(self) -> ListColumnBody:
+    def get_document_lines(self) -> ListColumnBody:
         return self.tb.get_column(ColumnsTable.TEXT)
 
     def __repr__(self):
@@ -120,9 +118,10 @@ class DigitalizedDocument(ABC):
 
     def get_output_name_with_extension(self) -> str | None:
         """Retorna o novo nome do arquivo, incluindo a extensão"""
-        if (self.extension_file is None) or (self.extension_file == '') or (self.extension_file == 'nan'):
+        if self.extension_file is None:
             return None
-        if (self.get_output_name_str() is None) or (self.get_output_name_str() == '') or (self.get_output_name_str() == 'nan'):
+        if (self.get_output_name_str() is None) or (self.get_output_name_str() == '') \
+                or (self.get_output_name_str() == 'nan'):
             return None
         return f'{self.get_output_name_str()}{self.extension_file}'
 
@@ -134,10 +133,10 @@ class DigitalizedDocument(ABC):
         pass
 
     def to_excel(self, file: sp.File):
-        self.tb.to_data().to_excel(file.absolute())
+        self.tb.to_data().to_excel(file.absolute(), index=False)
 
     def to_file_text(self, file: sp.File):
-        lines = self.lines
+        lines = self.get_document_lines
         print(f'Exportando: {file.absolute()}')
         with open(file.absolute(), 'w', encoding='utf-8') as f:
             f.writelines(lines)

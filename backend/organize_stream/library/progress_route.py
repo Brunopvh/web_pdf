@@ -7,9 +7,9 @@ import convert_stream as cs
 import zipfile
 import os
 import soup_files as sp
-from organize_stream.document import CreateNewFile
+from organize_stream.document import CreateFileNames
 from organize_stream.type_utils import (
-    FilterData, FilterText, LibDigitalized, DiskOriginInfo, DiskOutputInfo
+    FilterData, FilterText, EnumDigitalDoc, DictOriginInfo, DictOutputInfo
 )
 from sheet_stream import ListItems
 
@@ -115,24 +115,24 @@ def thread_organize_documents(**kwargs: dict[str, Any]) -> None:
     current_progress['total'] = len(kwargs['images']) + len(kwargs['pdfs'])
     current_progress['current'] = 0
     
-    name_finder: CreateNewFile
+    name_finder: CreateFileNames
     if kwargs['document_type'] == 'EPIS':
-        name_finder = CreateNewFile(lib_digitalized=LibDigitalized.EPI)
+        name_finder = CreateFileNames(lib_digitalized=EnumDigitalDoc.EPI)
     elif kwargs['document_type'] == 'CARTAS':
-        name_finder = CreateNewFile(lib_digitalized=LibDigitalized.CARTA_CALCULO)
+        name_finder = CreateFileNames(lib_digitalized=EnumDigitalDoc.CARTA_CALCULO)
     else:
         if kwargs['pattern'] is None:
             current_progress.update({"done": True, "zip_path": None})
             print(f"DEBUG: thread_organize_documents falhou, o filtro de texto é nulo!")
             return
         filter_text = FilterText(kwargs['pattern'])
-        name_finder = CreateNewFile(filters=filter_text)
+        name_finder = CreateFileNames(filters=filter_text)
            
     final_bytes: BytesIO | None
     try:
         count = 0
-        files_image: ListItems[DiskOriginInfo] = kwargs['images']
-        files_pdf: ListItems[DiskOriginInfo] = kwargs['pdfs']
+        files_image: ListItems[DictOriginInfo] = kwargs['images']
+        files_pdf: ListItems[DictOriginInfo] = kwargs['pdfs']
         total = len(files_image) + len(files_pdf)
         
         for num, file_info in enumerate(files_image):
@@ -146,7 +146,7 @@ def thread_organize_documents(**kwargs: dict[str, Any]) -> None:
             print(f'{num+1}/{total}')
             name_finder.add_disk_file(file_info) 
             
-        final_bytes: BytesIO | None = name_finder.export_keys_to_zip()
+        final_bytes: BytesIO | None = name_finder.export_new_files_to_zip()
         if final_bytes is None:
             current_progress.update({"done": True, "zip_path": None})
             print(f"DEBUG: thread_organize_documents falhou, o arquivo zip é nulo!")

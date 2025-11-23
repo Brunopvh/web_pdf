@@ -5,7 +5,7 @@ from io import BytesIO
 from sheet_stream import TableDocuments, IterRows, ListItems
 from organize_stream.utils import ocr, cs, sp, sheet
 from organize_stream.type_utils import (
-    NotifyTableExtract, TextProgress, DiskFile, KeyFiles, KeyWordsFileName,
+    NotifyTableExtract, TextProgress, DiskFile, ColumnsKeyFiles, DictKeyWordFiles,
 )
 from organize_stream.read import read_image, read_document, OcrImage, concat_tables
 import pandas as pd

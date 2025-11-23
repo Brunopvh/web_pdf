@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
+import os.path
 from abc import ABC, abstractmethod
 import pandas as pd
+from organize_stream.erros import *
 from organize_stream.type_utils import (
-    DigitalizedDocument, OriginFileName, DestFilePath,
-    FilterData,
+    DigitalizedDocument, FilterData, DictOriginInfo, DictOutputInfo, DictKeyWordFiles
 
 )
-
 from organize_stream.utils import (
     ArrayString, ListString, ListColumnBody, ColumnsTable,
     sp, fmt_str_file, HeadValues, HeadCell, sheet
@@ -137,32 +138,59 @@ class SearchableText(object):
 
 
 class NameFinder(ABC):
+    """
+    Gerar nomes de arquivos em documentos digitalizados
+    """
 
     def __init__(self, output_dir: sp.Directory):
         self.output_dir = output_dir
 
     @abstractmethod
-    def get_new_name(self, digitalized: DigitalizedDocument) -> dict[OriginFileName, DestFilePath]:
+    def get_new_name(self, digitalized: DigitalizedDocument) -> DictKeyWordFiles:
+        """
+        Retorna um dicionário, contendo informações do arquivo de origem e destino
+        """
         pass
 
 
-class NameFinderInnerText(NameFinder):
+class FindNameInnerText(NameFinder):
 
     def __init__(self, output_dir: sp.Directory):
         super().__init__(output_dir)
 
-    def get_new_name(self, digitalized: DigitalizedDocument) -> dict[OriginFileName, DestFilePath]:
-        src_file = digitalized.file_path_origin
-        filename = digitalized.get_output_name_with_extension()
-        if (src_file is None) or (filename is None):
-            return {}
-        if filename == '':
-            return {}
-        output_path = self.output_dir.join_file(filename)
-        return {OriginFileName(src_file.absolute()): DestFilePath(output_path.absolute())}
+    def get_new_name(self, digitalized: DigitalizedDocument) -> DictKeyWordFiles:
+        key_files = DictKeyWordFiles()
+        dict_output = DictOutputInfo()
+        dict_src = DictOriginInfo()
+        if digitalized.extension_file is not None:
+            dict_output.set_extension(digitalized.extension_file)
+            dict_src.set_extension(digitalized.extension_file)
+
+        src_file: sp.File | None = digitalized.file_path_origin
+        output_name: str | None = digitalized.get_output_name_with_extension()
+        if (src_file is None) or (output_name is None):
+            return key_files
+
+        # Setar valores do arquivo destino.
+        dict_output.set_directory(self.output_dir)
+        dict_output.set_filename_with_extension(output_name)
+        dict_output.set_abspath(self.output_dir.join_file(output_name))
+        if '.' in output_name:
+            split_name = output_name.split('.')
+            if len(split_name) > 1:
+                dict_output.set_name(split_name[-1])
+        # Setar valores do arquivo de origem
+        dict_src.set_filename_with_extension(src_file.basename())
+        dict_src.set_name(src_file.name())
+        dict_src.set_extension(src_file.extension())
+        dict_src.set_directory(sp.Directory(src_file.dirname()))
+        return key_files
 
 
-class NameFinderInnerData(NameFinder):
+class FindNameInnerData(NameFinder):
+    """
+    Filtra texto com base em dados presentes em uma planilha
+    """
 
     def __init__(self, output_dir: sp.Directory, *, filters: FilterData):
         super().__init__(output_dir)
@@ -194,18 +222,27 @@ class NameFinderInnerData(NameFinder):
             new_name = f'{new_name}-{i}'
         return new_name
 
-    def get_new_name(self, digitalized: DigitalizedDocument) -> dict[OriginFileName, DestFilePath]:
-        extension_file = digitalized.extension_file
-        _origin_path = digitalized.file_path_origin
-        if (extension_file is None) or (_origin_path is None):
-            return {}
+    def get_new_name(self, digitalized: DigitalizedDocument) -> DictKeyWordFiles:
+        extension_file: str | None = digitalized.extension_file
+        origin_path: sp.File | None = digitalized.file_path_origin
+        dict_src_file = DictOriginInfo()
+        dict_out_file = DictOutputInfo()
+        key_files = DictKeyWordFiles()
+
+        if extension_file is None:
+            raise ExtensionFileEmptyError()
+        if origin_path is None:
+            raise InvalidSrcFile()
+        dict_src_file.set_filename_with_extension(origin_path.basename())
+        dict_src_file.set_extension(origin_path.extension())
+        dict_src_file.set_directory(sp.Directory(origin_path.dirname()))
+        dict_out_file.set_directory(self.output_dir)
+        dict_out_file.set_extension(origin_path.extension())
 
         # Lista de valores da coluna texto.
         list_values_find: ArrayString = self.get_values(self.filter_data.src_df, self.filter_data.col_find)
-
         # Lista de valores da coluna com novos nomes de arquivo.
         content_new_names: ArrayString = self.get_values(self.filter_data.src_df, self.filter_data.col_new_name)
-
         # Lista de valores com as linhas de texto do arquivo em formato list[str].
         lines_in_doc: ArrayString = ArrayString(digitalized.get_lines_keys())
 
@@ -227,14 +264,14 @@ class NameFinderInnerData(NameFinder):
             output_name: str = fmt_str_file(output_name)
             break
 
+        key_files.set_origin_file(dict_src_file)
         if output_name is None:
-            return {}
+            key_files.set_output_file(dict_out_file)
+            return key_files
 
-        output_name = f'{output_name}{extension_file}'
-        _dest_path = self.output_dir.join_file(output_name)
-
-        if not isinstance(_dest_path, sp.File):
-            return {}
-        if not isinstance(_origin_path, sp.File):
-            return {}
-        return {OriginFileName(_origin_path.absolute()): DestFilePath(_dest_path.absolute())}
+        dict_out_file.set_name(output_name)
+        dict_out_file.set_abspath(
+            self.output_dir.join_file(f'{output_name}{dict_out_file.get_extension()}')
+        )
+        key_files.set_output_file(dict_out_file)
+        return key_files

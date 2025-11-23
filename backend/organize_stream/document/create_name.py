@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 from __future__ import annotations
+
+import os
 import tempfile
 from typing import Callable
 from io import BytesIO
 from typing import Union
 from sheet_stream import TableDocuments, ColumnsTable, ListItems
 from organize_stream.type_utils import (
-    FilterText, FilterData, DigitalizedDocument, LibDigitalized,
-    ObserverTableExtraction, KeyWordsFileName, DiskFile,
-    DiskOriginInfo, DiskOutputInfo, DiskFileInfo
+    FilterText, FilterData, DigitalizedDocument, EnumDigitalDoc,
+    ObserverTableExtraction, DictKeyWordFiles, DiskFile,
+    DictOriginInfo, DictOutputInfo, DictFileInfo
 )
-from organize_stream.find import (
-    NameFinderInnerText, NameFinderInnerData, OriginFileName, DestFilePath
-)
+from organize_stream.find import FindNameInnerText, FindNameInnerData
 from organize_stream.utils import (sp, cs)
 from organize_stream.read import create_tb_from_names
 from organize_stream.text_extract import DocumentTextExtract
@@ -22,242 +22,185 @@ import shutil
 import zipfile
 import pandas as pd
 
-FindItem = Union[str, list[str]]
 
+def move_path_files(mv_items: DictKeyWordFiles, *, replace: bool = False) -> bool:
+    if mv_items.get_origin_file() is None or mv_items.get_output_file() is None:
+        return False
+    if mv_items.get_origin_file().get_abspath() is None:
+        return False
+    if mv_items.get_output_file().get_abspath() is None:
+        return False
+    if not mv_items.get_origin_file().get_abspath().exists():
+        print(f'PULANDO o arquivo não existe ... {mv_items.get_origin_file().get_abspath().absolute()}')
+        return False
 
-def move_list_files(
-        mv_items: dict[str, list[sp.File]], *,
-        replace: bool = False
-) -> None:
-    total_file = len(mv_items['src'])
-    for idx, file in enumerate(mv_items['src']):
-        output_path: sp.File = mv_items['dest'][idx]
-        if not file.exists():
-            print(f'[PULANDO]: {idx + 1} Arquivo não encontrado {file.absolute()}')
-        if output_path.exists():
-            if not replace:
-                _count = 0
-                origin_name = output_path.name_absolute()
-                origin_ext = output_path.extension()
-                while output_path.exists():
-                    _count += 1
-                    new_name = f'{origin_name}-{_count}{origin_ext}'
-                    output_path = sp.File(new_name)
-                del origin_name
-                del origin_ext
-        print(f'Movendo: {idx + 1}/{total_file} {file.absolute()}')
-        try:
-            shutil.move(file.absolute(), output_path.absolute())
-        except Exception as e:
-            print(f'{e}')
-        del output_path
-
-
-def move_path_files(
-        mv_items: dict[OriginFileName, DestFilePath], *,
-        replace: bool = False
-) -> None:
-    for _k in mv_items:
-        output_path = mv_items[_k]
-        if not _k.exists():
-            print(f'[PULANDO O ARQUIVO NÃO EXISTE]: {_k.basename()}')
-        if not replace:
+    _output_full_path = mv_items.get_output_file().get_abspath().absolute()
+    if not replace:
+        if mv_items.get_output_file().get_abspath().path.exists():
             _count = 0
-            origin_name: str = output_path.name_absolute()
-            origin_ext = output_path.extension()
-            while output_path.exists():
+            _output_name = mv_items.get_output_file().get_name()
+            _output_ext = mv_items.get_output_file().get_extension()
+            while os.path.exists(_output_full_path):
                 _count += 1
-                new_output_name: str = f'{origin_name}-{_count}{origin_ext}'
-                output_path = sp.File(new_output_name)
-            del origin_name
-            del origin_ext
-        try:
-            shutil.move(_k.absolute(), output_path.absolute())
-        except Exception as e:
-            print(e)
+                _new_name = f'{_output_name}-{_count}{_output_ext}'
+                _output_full_path = os.path.join(
+                    mv_items.get_output_file().get_abspath().dirname(), _new_name
+                )
+    try:
+        shutil.move(mv_items.get_origin_file().get_abspath().absolute(), _output_full_path)
+    except Exception as e:
+        print(e)
+        return False
+    return True
 
 
-def save_key_word_filename(
-        key_word_file: KeyWordsFileName,
-        out_dir: sp.Directory
-) -> tuple[DiskFileInfo, DiskOutputInfo | None, bool]:
+def save_keyword_files(
+            key_files: DictKeyWordFiles, out_dir: sp.Directory
+        ) -> tuple[DictFileInfo, DictOutputInfo | None, bool]:
     """
-    SALVAR/MOVER o arquivo nomeado no disco e retorna Tuple contendo a sequência:
-        - arquivo original, arquivo salvo no disco e booleano(sucesso ou falha na operação).
-    Se o terceiro elemento for False, significa que a operação falhou.
-
-    Se o arquivo origem (SRC) for bytes/BytesIO() os dados serão salvos no diretório informado
-    sem alterar os arquivos de origem, se a origem for File()/str os arquivos serão movidos para
-    o novo diretório.
-
-    @rtype: tuple[DynamicFile, DestFilePath | None, bool]
-    @type key_word_file: KeyWordsFileName
-    @type out_dir: sp.Directory
-
-    :rtype: Tuple[DynamicFile, DestFilePath | None, bool]
-    :param out_dir: Diretório onde o arquivo de saída será gravado.
-    :param key_word_file: Objeto/dicionário com os dados dos arquivos de origem e destino.
+        Salva os bytes do arquivo destino no disco.
     """
-    if ((key_word_file.get_origin_file().get_file_bytes() is None) and
-            (key_word_file.get_origin_file().get_abspath() is None)):
+    if key_files.get_output_file():
         raise InvalidSrcFile()
-    if key_word_file.get_output_file().get_filename() is None:
-        return key_word_file.get_origin_file(), None, False
+    if key_files.get_output_file().get_filename_with_extension() is None:
+        return key_files.get_origin_file(), None, False
+    if key_files.get_output_file().get_file_bytes() is None:
+        return key_files.get_origin_file(), None, False
 
     out_dir.mkdir()
-    if key_word_file.get_origin_file().get_file_bytes() is not None:
-        # Salvar os bytes no disco.
-        return key_word_file.save(out_dir)
-    elif key_word_file.get_origin_file().get_abspath() is not None:
-        # Mover o arquivo no disco.
-        return key_word_file.move(out_dir)
-    return key_word_file.get_origin_file(), None, False
+    if key_files.get_origin_file().get_file_bytes() is not None:
+        return key_files.save_bytes(out_dir)
+    elif key_files.get_output_file().get_file_bytes() is not None:
+        return key_files.save_bytes(out_dir)
+    return key_files.get_origin_file(), None, False
 
 
-def _get_info_from_pdf(file: DiskFile | cs.DocumentPdf) -> tuple[DiskOriginInfo, cs.DocumentPdf]:
-    pdf_info = DiskOriginInfo()
+def _get_info_from_pdf(file: DiskFile | cs.DocumentPdf) -> tuple[DictOriginInfo, cs.DocumentPdf]:
+    pdf_info = DictOriginInfo()
     if isinstance(file, cs.DocumentPdf):
         pdf_info.set_file_bytes(file.to_bytes().getvalue())
-        pdf_info.set_extension(file.metadata.extension)
-        pdf_info.set_filename(f'{file.metadata.name}{file.metadata.extension}')
+        pdf_info.set_extension('.pdf')
+        pdf_info.set_filename_with_extension(f'{file.metadata.name}.pdf')
     elif isinstance(file, bytes):
         pdf_info.set_file_bytes(file)
         file = cs.DocumentPdf.create_from_bytes(BytesIO(file))
         pdf_info.set_extension(file.metadata.extension)
-        pdf_info.set_filename(f'{file.metadata.name}{file.metadata.extension}')
+        pdf_info.set_filename_with_extension(f'{file.metadata.name}{file.metadata.extension}')
     elif isinstance(file, BytesIO):
         pdf_info.set_file_bytes(file.getvalue())
         file.seek(0)
         file = cs.DocumentPdf.create_from_bytes(file)
         pdf_info.set_extension(file.metadata.extension)
-        pdf_info.set_filename(f'{file.metadata.name}{file.metadata.extension}')
+        pdf_info.set_filename_with_extension(f'{file.metadata.name}{file.metadata.extension}')
     elif isinstance(file, str):
         pdf_info.set_file_bytes(sp.File(file).path.read_bytes())
         file = cs.ImageObject.create_from_file(sp.File(file))
         pdf_info.set_extension(file.metadata.extension)
-        pdf_info.set_filename(f'{file.metadata.name}{file.metadata.extension}')
+        pdf_info.set_filename_with_extension(f'{file.metadata.name}{file.metadata.extension}')
     elif isinstance(file, sp.File):
         pdf_info.set_file_bytes(file.path.read_bytes())
         pdf_info.set_extension(file.extension())
-        pdf_info.set_filename(file.basename())
+        pdf_info.set_filename_with_extension(file.basename())
         file = cs.DocumentPdf.create_from_file(file)
 
     if pdf_info.get_extension() == 'nan':
         pdf_info.set_extension(None)
-    if pdf_info.get_filename() == 'nan':
-        pdf_info.set_filename(None)
+    if pdf_info.get_filename_with_extension() == 'nan':
+        pdf_info.set_filename_with_extension(None)
     if pdf_info.get_abspath() == 'nan':
         pdf_info.set_abspath(None)
     return pdf_info, file
 
 
-def _get_info_from_img(file: DiskFile | cs.ImageObject) -> tuple[DiskOriginInfo, cs.ImageObject]:
-    img_info = DiskOriginInfo()
+def _get_info_from_img(file: DiskFile | cs.ImageObject) -> tuple[DictOriginInfo, cs.ImageObject]:
+    img_info = DictOriginInfo()
     if isinstance(file, cs.ImageObject):
         img_info.set_file_bytes(file.to_bytes().getvalue())
         img_info.set_extension(file.metadata.extension)
-        img_info.set_filename(f'{file.metadata.name}{file.metadata.extension}')
+        img_info.set_filename_with_extension(f'{file.metadata.name}{file.metadata.extension}')
     elif isinstance(file, bytes):
         img_info.set_file_bytes(file)
         file = cs.ImageObject.create_from_bytes(file)
         img_info.set_extension(file.metadata.extension)
-        img_info.set_filename(f'{file.metadata.name}{file.metadata.extension}')
+        img_info.set_filename_with_extension(f'{file.metadata.name}{file.metadata.extension}')
     elif isinstance(file, BytesIO):
         img_info.set_file_bytes(file.getvalue())
         file.seek(0)
         file = cs.ImageObject.create_from_bytes(file.getvalue())
         img_info.set_extension(file.metadata.extension)
-        img_info.set_filename(f'{file.metadata.name}{file.metadata.extension}')
+        img_info.set_filename_with_extension(f'{file.metadata.name}{file.metadata.extension}')
     elif isinstance(file, str):
         img_info.set_file_bytes(sp.File(file).path.read_bytes())
         file = cs.ImageObject.create_from_file(sp.File(file))
         img_info.set_extension(file.metadata.extension)
-        img_info.set_filename(f'{file.metadata.name}{file.metadata.extension}')
+        img_info.set_filename_with_extension(f'{file.metadata.name}{file.metadata.extension}')
     elif isinstance(file, sp.File):
+        img_info.set_abspath(file)
         img_info.set_file_bytes(file.path.read_bytes())
         img_info.set_extension(file.extension())
-        img_info.set_filename(file.basename())
+        img_info.set_filename_with_extension(file.basename())
         file = cs.ImageObject.create_from_file(file)
 
     if img_info.get_extension() == 'nan':
         img_info.set_extension(None)
-    if img_info.get_filename() == 'nan':
-        img_info.set_filename(None)
+    if img_info.get_filename_with_extension() == 'nan':
+        img_info.set_filename_with_extension(None)
     if img_info.get_abspath() == 'nan':
         img_info.set_abspath(None)
     return img_info, file
 
 
-class CreateNewFile(object):
+class CreateFileNames(object):
 
     def __init__(
-            self,
-            extractor: DocumentTextExtract = DocumentTextExtract(),
-            lib_digitalized: LibDigitalized = LibDigitalized.GENERIC,
-            filters: FilterText = None,
-            func_save_file: Callable[
-                [KeyWordsFileName, sp.Directory], tuple[DiskOriginInfo, DiskOutputInfo | None, bool]
-            ] = None,
-    ):
+                self, *,
+                extractor: DocumentTextExtract = DocumentTextExtract(),
+                lib_digitalized: EnumDigitalDoc = EnumDigitalDoc.GENERIC,
+                filters: FilterText = None,
+                func_save_file: Callable[
+                    [DictKeyWordFiles, sp.Directory], tuple[DictOriginInfo, DictOutputInfo | None, bool]
+                ] = None,
+                func_move_file: Callable[[DictKeyWordFiles], bool] = None,
+            ):
         super().__init__()
         if func_save_file is None:
-            self.func_save_file = save_key_word_filename
+            self.func_save_file = save_keyword_files
         else:
             self.func_save_file = func_save_file
 
-        self.lib_digitalized: LibDigitalized = lib_digitalized
+        if func_move_file is None:
+            self.func_move_file = move_path_files
+        else:
+            self.func_move_file = func_move_file
+
+        self.lib_digitalized: EnumDigitalDoc = lib_digitalized
         self.extractor: DocumentTextExtract = extractor
         self.extractor.apply_threshold = False
         self.filters = filters
         # Dicionário para gravar o status de exportação dos arquivos,
         # sendo que as chaves apontam para o arquivo de origem DynamicFile() e
         # os valores apontam para uma tupla, (DestFilePath, bool).
-        _list_status = ListItems()
-        _list_origin = ListItems()
-        _list_dest = ListItems()
 
-        self.__exported_files: dict[str, ListItems] = {
-            'STATUS': _list_status,
-            'ORIGEM': _list_origin,
-            'DESTINO': _list_dest,
+        self._dict_exported_info: dict[str, ListItems] = {
+            'STATUS': ListItems(),
+            'ORIGEM': ListItems(),
+            'DESTINO': ListItems(),
         }
-        self.__list_key_files: ListItems[KeyWordsFileName] = ListItems()
-        self.__list_key_files.set_list_type(KeyWordsFileName)
+        self._list_key_filenames: ListItems[DictKeyWordFiles] = ListItems()
+        self._list_key_filenames.set_list_type(DictKeyWordFiles)
         self.__temp_dir: sp.Directory = sp.Directory(tempfile.mkdtemp())
 
     def clear(self):
-        self.__exported_files.clear()
-        self.__list_key_files.clear()
+        self._dict_exported_info.clear()
+        self._list_key_filenames.clear()
 
     def get_exported_files(self) -> dict[str, ListItems]:
-        return self.__exported_files
+        return self._dict_exported_info
 
-    def get_list_key_files(self) -> ListItems[KeyWordsFileName]:
-        return self.__list_key_files
+    def get_list_key_files(self) -> ListItems[DictKeyWordFiles]:
+        return self._list_key_filenames
 
-    def read_image(self, file: DiskFile | cs.ImageObject) -> KeyWordsFileName:
-        """
-            Gera um KeyWordsFileName que pode ser exportado/salvo no disco posteriormente.
-        """
-        image_info: tuple[DiskOriginInfo, cs.ImageObject] = _get_info_from_img(file)
-        dest_info = self.create_output_info(self.extractor.read_image(image_info[1]))
-        __kw = KeyWordsFileName()
-        __kw.set_origin_file(image_info[0])
-        __kw.set_output_file(dest_info)
-        return __kw
-
-    def read_document(self, file: DiskFile | cs.DocumentPdf) -> KeyWordsFileName:
-        """
-            Gera um KeyWordsFileName que pode ser exportado/salvo no disco posteriormente.
-        """
-        pdf_info: tuple[DiskOriginInfo, cs.DocumentPdf] = _get_info_from_pdf(file)
-        dest_info = self.create_output_info(self.extractor.read_document(pdf_info[1]))
-        __kw = KeyWordsFileName()
-        __kw.set_origin_file(pdf_info[0])
-        __kw.set_output_file(dest_info)
-        return __kw
-
-    def create_output_info(self, tb: TableDocuments) -> DiskOutputInfo | None:
+    def create_output_info(self, tb: TableDocuments) -> DictOutputInfo | None:
         """
         Recebe uma tabela e retorna um dicionário de chave/valor com os dados
         do arquivo de origem e destino, incluindo extensão de arquivo.
@@ -267,21 +210,21 @@ class CreateNewFile(object):
 
         Tais valores podem ser nulos ou vazios se TableDocuments.length for igual 0.
         """
-
         if tb.length == 0:
-            raise TableFileEmptyError('A tabela de arquivos não pode estar vazia.')
-        
-        output_info = DiskOutputInfo()
+            # raise TableFileEmptyError('A tabela de arquivos não pode estar vazia.')
+            return None
+
         _doc: DigitalizedDocument
-        if self.lib_digitalized == LibDigitalized.GENERIC:
+        if self.lib_digitalized == EnumDigitalDoc.GENERIC:
             _doc = GenericDocument(tb, filters=self.filters)
-        elif self.lib_digitalized == LibDigitalized.CARTA_CALCULO:
+        elif self.lib_digitalized == EnumDigitalDoc.CARTA_CALCULO:
             _doc = CartaCalculo.create(tb)
-        elif self.lib_digitalized == LibDigitalized.EPI:
+        elif self.lib_digitalized == EnumDigitalDoc.EPI:
             _doc = FichaEpi.create(tb)
         else:
             raise InvalidTDigitalizedDocument(f'{__class__.__name__} Documento inválido: {self.lib_digitalized}')
-        
+
+        output_info = DictOutputInfo()
         # Proteger o objeto gerado contra valores de str padrão.
         filename_str = _doc.get_output_name_str()
         src_extension = _doc.extension_file
@@ -289,69 +232,119 @@ class CreateNewFile(object):
             print(f'Novo nome não gerado ... {tb.get_row(0)}')
             return None
         if (src_extension is None) or (src_extension == '') and (src_extension == 'nan'):
-            src_extension = tb.get_column(ColumnsTable.FILETYPE).first
-        if (src_extension is not None) and (src_extension != '') and (src_extension != 'nan'):
-            output_info.set_extension(src_extension)
-            
-        if output_info.get_extension() is None:
-            output_info.set_filename(filename_str)
-        else:
-            output_info.set_filename(f'{filename_str}{output_info.get_extension()}')
+            print(f'Novo nome não gerado ... {tb.get_row(0)}')
+            return None
+        output_info.set_extension(src_extension)
+        output_info.set_name(filename_str)
+        output_info.set_filename_with_extension(f'{filename_str}{src_extension}')
         return output_info
 
-    def _save_file_keyword(
-            self, key_word_file: KeyWordsFileName, out_dir: sp.Directory
-    ) -> tuple[DiskOriginInfo, DiskOutputInfo, bool]:
+    def save_file_keyword(
+                self, key_word_file: DictKeyWordFiles, out_dir: sp.Directory
+            ) -> tuple[DictOriginInfo, DictOutputInfo, bool]:
         """
-        Recebe um objeto KeyWordsFileName() e um diretório para salvar o arquivo de origem
+        Recebe um objeto DictKeyWordFiles() e um diretório para salvar o arquivo de origem
         no destino padronizado.
 
-        Se o arquivo de origem for File()/str serão movidos, se não
-        serão salvos sem alterar os arquivos fonte.
+        Apenas os bytes são salvos no destino, sem mover os arquivos originais.
         """
-        _status: tuple[DiskOriginInfo, DiskOutputInfo, bool] = self.func_save_file(key_word_file, out_dir)
-        self.__exported_files['ORIGEM'].append(
-            _status[0].get_filename() if _status[1] is not None else None
-        )
-        self.__exported_files['DESTINO'].append(
-            _status[1].get_filename() if _status[1] is not None else None
-        )
-        self.__exported_files['STATUS'].append(_status[2])
+        # Salvar/Exportar os bytes do arquivo destino.
+        _status: tuple[DictOriginInfo, DictOutputInfo, bool] = self.func_save_file(key_word_file, out_dir)
+        self._add_log_status(key_word_file, _status[2])
         return _status
 
-    def rename_image(self, image: DiskFile | cs.ImageObject, output_dir: sp.Directory):
+    def _add_log_status(self, key_word_file: DictKeyWordFiles, status: bool) -> None:
+        # Gravar o status da operação
+        src = None
+        dest = None
+        if key_word_file.get_origin_file() is not None:
+            src = key_word_file.get_origin_file().get_filename_with_extension()
+        if key_word_file.get_output_file() is not None:
+            dest = key_word_file.get_output_file().get_filename_with_extension()
+        self._dict_exported_info['ORIGEM'].append(src)
+        self._dict_exported_info['DESTINO'].append(dest)
+        self._dict_exported_info['STATUS'].append(status)
+
+    def move_file_keyword(
+                self, key_word_file: DictKeyWordFiles
+            ) -> tuple[DictOriginInfo, DictOutputInfo, bool]:
+        """
+        Recebe um objeto DictKeyWordFiles() e move o arquivo de origem para o destino padronizado.
+        """
+        if key_word_file.get_output_file().get_abspath() is None:
+            print(f'{__class__.__name__} DEBUG: o arquivo destino é nulo')
+            self._add_log_status(key_word_file, False)
+            return key_word_file.get_origin_file(), key_word_file.get_output_file(), False
+        if key_word_file.get_origin_file().get_abspath() is None:
+            print(f'{__class__.__name__} DEBUG: o arquivo origem é nulo')
+            self._add_log_status(key_word_file, False)
+            return key_word_file.get_origin_file(), key_word_file.get_output_file(), False
+
+        _status: bool = self.func_move_file(key_word_file)
+        # Gravar o status da operação
+        self._add_log_status(key_word_file, _status)
+        return key_word_file.get_origin_file(), key_word_file.get_output_file(), _status
+
+    def read_image(self, file: DiskFile | cs.ImageObject) -> DictKeyWordFiles:
+        """
+            Gera um objeto DictKeyWordFiles() que pode ser exportado/salvo no disco posteriormente.
+        """
+        image_info: tuple[DictOriginInfo, cs.ImageObject] = _get_info_from_img(file)
+        dest_info: DictOutputInfo | None = self.create_output_info(self.extractor.read_image(image_info[1]))
+        __kw = DictKeyWordFiles()
+        __kw.set_origin_file(image_info[0])
+        if dest_info is not None:
+            __kw.set_output_file(dest_info)
+        else:
+            __kw.set_output_file(DictOutputInfo())
+        return __kw
+
+    def read_document(self, file: DiskFile | cs.DocumentPdf) -> DictKeyWordFiles:
+        """
+            Gera um KeyWordsFileName que pode ser exportado/salvo no disco posteriormente.
+        """
+        pdf_info: tuple[DictOriginInfo, cs.DocumentPdf] = _get_info_from_pdf(file)
+        dest_info = self.create_output_info(self.extractor.read_document(pdf_info[1]))
+        __kw = DictKeyWordFiles()
+        __kw.set_origin_file(pdf_info[0])
+        __kw.set_output_file(dest_info)
+        return __kw
+
+    def rename_image(self, image: sp.File, output_dir: sp.Directory):
         """
         Extrai o texto de uma imagem e renomeia conforme o padrão do documento informado nesse objeto.
         """
-        __kw_im: KeyWordsFileName = self.read_image(image)
-        self._save_file_keyword(__kw_im, output_dir)
+        __kw_im: DictKeyWordFiles = self.read_image(image)
+        __kw_im.set_output_dir(output_dir)
+        self.move_file_keyword(__kw_im)
 
     def rename_document(
-            self, document: DiskFile | cs.DocumentPdf, output_dir: sp.Directory
+            self, document: sp.File, output_dir: sp.Directory
     ) -> None:
         """
         Extrai o texto de um PDF e renomeia conforme o padrão do documento informado nesse objeto.
         """
-        __kw_pdf: KeyWordsFileName = self.read_document(document)
-        self._save_file_keyword(__kw_pdf, output_dir)
+        __kw_pdf: DictKeyWordFiles = self.read_document(document)
+        __kw_pdf.set_output_dir(output_dir)
+        self.move_file_keyword(__kw_pdf)
 
     def add_image(self, image: DiskFile | cs.ImageObject):
         __k_img = self.read_image(image)
-        self.__list_key_files.append(__k_img)
+        self._list_key_filenames.append(__k_img)
 
     def add_document(self, document: DiskFile | cs.DocumentPdf):
-        __k_doc: KeyWordsFileName = self.read_document(document)
-        self.__list_key_files.append(__k_doc)
+        __k_doc: DictKeyWordFiles = self.read_document(document)
+        self._list_key_filenames.append(__k_doc)
 
-    def add_disk_file(self, disk_file: DiskFileInfo):
-        if not isinstance(disk_file, DiskFileInfo):
+    def add_disk_file(self, disk_file: DictFileInfo):
+        if not isinstance(disk_file, DictFileInfo):
             raise DiskFileInvalidError(f'Use: DiskFileInfo(), não {type(disk_file)}')
         if disk_file.get_extension() is None:
             raise DiskFileInvalidError(f'Use: Adicione uma extensão de arquivo em DiskFileInfo')
         if disk_file.get_file_bytes() is None:
             raise DiskFileInvalidError(f'Use: Adicione bytes ao DiskFileInfo')
         
-        key_info = KeyWordsFileName()
+        key_info = DictKeyWordFiles()
         key_info.set_origin_file(disk_file)
         tb: TableDocuments = None
         if disk_file.get_extension() in ['.png', '.jpg', '.jpeg', '.svg']:
@@ -371,18 +364,21 @@ class CreateNewFile(object):
         if output_info is not None:
             if output_info.get_extension() is None:
                 ext = disk_file.get_extension()
-                output_info.set_filename(f'{output_info.get_filename()}{ext}')
+                output_info.set_filename_with_extension(f'{output_info.get_filename_with_extension()}{ext}')
             key_info.set_output_file(output_info)
-            self.__list_key_files.append(key_info)
+            self._list_key_filenames.append(key_info)
             
-    def export_new_files(self, output_dir: sp.Directory) -> None:
-        total = self.__list_key_files.length
-        for num, k_file in enumerate(self.__list_key_files):
+    def export_new_filenames(self, output_dir: sp.Directory) -> None:
+        """
+        Salva os bytes de todos os documentos processados.
+        """
+        total = self._list_key_filenames.length
+        for num, k_file in enumerate(self._list_key_filenames):
             self.extractor.pbar.update(
                 ((num + 1) / total) * 100,
                 f'{num + 1}/{total} Exportando arquivos',
             )
-            self._save_file_keyword(k_file, output_dir)
+            self.save_file_keyword(k_file, output_dir)
 
     def export_log_actions(self) -> pd.DataFrame:
         __data: dict[str, list[str]] = {
@@ -391,51 +387,47 @@ class CreateNewFile(object):
             'NOVO_NOME': [],
 
         }
-        for num, item in enumerate(self.__exported_files['STATUS']):
+        for num, item in enumerate(self._dict_exported_info['STATUS']):
             value = "FALHA" if not item else "SUCESSO"
             __data['STATUS'].append(str(value))
-            __data['ARQUIVO_ORIGEM'].append(self.__exported_files["ORIGEM"][num])
-            __data['NOVO_NOME'].append(self.__exported_files["DESTINO"][num])
+            __data['ARQUIVO_ORIGEM'].append(self._dict_exported_info["ORIGEM"][num])
+            __data['NOVO_NOME'].append(self._dict_exported_info["DESTINO"][num])
         __df = pd.DataFrame(__data)
         return __df.astype('str')
 
-    def export_keys_to_zip(self) -> BytesIO | None:
+    def export_new_files_to_zip(self) -> BytesIO | None:
         """
         Renomeia os arquivos e retorna BytesIO() com o conteúdo final zipado.
         """
-        if self.__list_key_files.length == 0:
+        if self._list_key_filenames.length == 0:
             print(f'DEBUG: {__class__.__name__} nenhuma tabela disponível para exportar!')
             return None
-        print(f'Exportando: {self.__list_key_files.length} arquivos')
+        print(f'Exportando: {self._list_key_filenames.length} arquivos')
 
         zip_buffer = BytesIO()
-        key_file: KeyWordsFileName
+        key_file: DictKeyWordFiles
         try:
             with zipfile.ZipFile(zip_buffer, "w") as zipf:
-                for key_file in self.__list_key_files:
+                for key_file in self._list_key_filenames:
                     final_bytes = None
                     if key_file.get_output_file().get_file_bytes() is not None:
                         final_bytes = key_file.get_output_file().get_file_bytes()
                     elif key_file.get_origin_file().get_file_bytes() is not None:
                         final_bytes = key_file.get_origin_file().get_file_bytes()
                     if final_bytes is None:
-                        self.__exported_files['STATUS'].append(False)
-                        self.__exported_files['ORIGEM'].append(key_file.get_origin_file().get_filename())
-                        self.__exported_files['DESTINO'].append(key_file.get_output_file().get_filename())
-                        print(f'[PULANDO] ... bytes nulos {key_file.get_origin_file().get_filename()}')
+                        self._add_log_status(key_file, False)
+                        print(f'[PULANDO] ... bytes nulos {key_file.get_origin_file().get_filename_with_extension()}')
                         continue
-                    if key_file.get_output_file().get_filename() is None:
-                        self.__exported_files['STATUS'].append(False)
-                        self.__exported_files['ORIGEM'].append(key_file.get_origin_file().get_filename())
-                        self.__exported_files['DESTINO'].append(key_file.get_output_file().get_filename())
-                        print(f'[PULANDO] ... nome destino é nulo {key_file.get_origin_file().get_filename()}')
+                    if key_file.get_output_file().get_filename_with_extension() is None:
+                        self._add_log_status(key_file, False)
+                        print(
+                            f'Erro: nome destino é nulo {key_file.get_origin_file().get_filename_with_extension()}'
+                        )
                         continue
 
-                    dest_file_name: str = key_file.get_output_file().get_filename()
+                    dest_file_name: str = key_file.get_output_file().get_filename_with_extension()
                     zipf.writestr(dest_file_name, final_bytes)
-                    self.__exported_files['STATUS'].append(True)
-                    self.__exported_files['ORIGEM'].append(key_file.get_origin_file().get_filename())
-                    self.__exported_files['DESTINO'].append(key_file.get_output_file().get_filename())
+                    self._add_log_status(key_file, True)
         except Exception as err:
             print(f'{__class__.__name__}: {err}')
             return None
@@ -504,12 +496,12 @@ class ExtractNameInnerText(ExtractName):
     def __init__(
             self,
             output_dir: sp.Directory, *,
-            lib_digitalized: LibDigitalized = LibDigitalized.GENERIC,
+            lib_digitalized: EnumDigitalDoc = EnumDigitalDoc.GENERIC,
             filters: FilterText = None,
     ):
         super().__init__(output_dir, filters=filters)
-        self.lib_digitalized: LibDigitalized = lib_digitalized
-        self.name_finder: NameFinderInnerText = NameFinderInnerText(self.output_dir)
+        self.lib_digitalized: EnumDigitalDoc = lib_digitalized
+        self.name_finder: FindNameInnerText = FindNameInnerText(self.output_dir)
 
     def receive_notify(self, notify: TableDocuments) -> None:
         self._count += 1
@@ -526,18 +518,18 @@ class ExtractNameInnerText(ExtractName):
         nos documentos/imagens.
         """
         dg: DigitalizedDocument
-        if self.lib_digitalized == LibDigitalized.GENERIC:
+        if self.lib_digitalized == EnumDigitalDoc.GENERIC:
             if self.filters is None:
                 print(f'DEBUG: {__class__.__name__} Falha ... o filtro está vazio.')
                 return
             dg = GenericDocument(tb, filters=self.filters)
-        elif self.lib_digitalized == LibDigitalized.CARTA_CALCULO:
+        elif self.lib_digitalized == EnumDigitalDoc.CARTA_CALCULO:
             dg = CartaCalculo.create(tb)
-        elif self.lib_digitalized == LibDigitalized.EPI:
+        elif self.lib_digitalized == EnumDigitalDoc.EPI:
             dg = FichaEpi.create(tb)
         else:
             raise InvalidTDigitalizedDocument()
-        new_names: dict[OriginFileName, DestFilePath] = self.name_finder.get_new_name(dg)
+        new_names: DictKeyWordFiles = self.name_finder.get_new_name(dg)
         move_path_files(new_names, replace=False)
 
 
@@ -549,7 +541,7 @@ class ExtractNameInnerData(ExtractName):
     def __init__(self, output_dir: sp.Directory, *, filters: FilterData = None):
         super().__init__(output_dir, filters=None)
         self.filter_data: FilterData = filters
-        self.name_inner_data: NameFinderInnerData = NameFinderInnerData(self.output_dir, filters=self.filter_data)
+        self.name_inner_data: FindNameInnerData = FindNameInnerData(self.output_dir, filters=self.filter_data)
 
     def receive_notify(self, notify: TableDocuments) -> None:
         self._count += 1
@@ -568,22 +560,6 @@ class ExtractNameInnerData(ExtractName):
 
     def move_where_math_filename(self, files: list[sp.File]) -> None:
         """
-            Mover arquivos conforme as ocorrências de texto encontradas na tabela/DataFrame df.
-        o nome do novo arquivo será igual à ocorrência de texto da coluna 'col_find', podendo
-        estender o nome com elementos de outras colunas, tais colunas podem ser informadas (opcionalmente)
-        no parâmetro cols_in_name.
-            Ex:
-        Suponha que a tabela para renomear aquivos tenha a seguinte estrutura:
-
-        A      B        C
-        maça   Cidade 1 xxyyy
-        banana Cidade 2 yyxxx
-        mamão  Cidade 3 xyxyx
-
-        Se passarmos os parâmetros col_find='A' e col_new_name='A' e o texto banana for
-        encontrado no(s) documento, o novo nome do arquivo será banana. Caso incluir o parâmetro
-        cols_in_name=['B'] o novo nome do arquivo será banana-Cidade 2 ou
-        banana-Cidade 2-yyxxx (se incluir cols_in_name=['B', 'C']).
 
         """
         values: list[TableDocuments] = create_tb_from_names(files)

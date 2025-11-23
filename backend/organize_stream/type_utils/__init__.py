@@ -1,10 +1,10 @@
 from .observer import (
     Observer, NotifyProvider, ObserverTableExtraction, NotifyTableExtract
 )
-from .digital_doc import DigitalizedDocument, FilterText, FilterData
+from .digitalized import DigitalizedDocument, FilterText, FilterData
 from .keyword_files import (
-    DestFilePath, OriginFileName, LibDigitalized, KeyFiles,
-    KeyWordsFileName, DiskFile, DynamicFile, DiskOriginInfo, DiskOutputInfo, DiskFileInfo
+    DestFilePath, OriginFileName, EnumDigitalDoc, ColumnsKeyFiles,
+    DictKeyWordFiles, DiskFile, DynamicFile, DictOriginInfo, DictOutputInfo, DictFileInfo
 )
 from soup_files import File, ProgressBarAdapter
 

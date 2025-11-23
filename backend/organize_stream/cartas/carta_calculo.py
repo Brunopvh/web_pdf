@@ -38,7 +38,7 @@ class CartaCalculo(DigitalizedDocument):
 
     @property
     def cidade(self) -> str | None:
-        lines: ListColumnBody = self.lines
+        lines: ListColumnBody = self.get_document_lines
         _loc = None
         for k in self.localidades.keys():
             out = lines.find_text(k)
@@ -64,7 +64,7 @@ class CartaCalculo(DigitalizedDocument):
 
     @property
     def medidor(self) -> str | None:
-        _medidor = self.lines.find_text('MEDI')
+        _medidor = self.get_document_lines.find_text('MEDI')
 
         if _medidor is None:
             return None
@@ -80,7 +80,7 @@ class CartaCalculo(DigitalizedDocument):
     def get_line_key(self) -> str | None:
         _check = ['UC', 'TOI', 'TOL']
         _key_word = 'CAR'
-        lines = self.lines
+        lines = self.get_document_lines
         filter_list = ArrayString([])
         elements = ArrayString([])
         list_index: list[int] = []
@@ -120,7 +120,7 @@ class CartaCalculo(DigitalizedDocument):
         return remove_bad_chars(final_line)
 
     def get_lines_keys(self) -> ArrayString:
-        lines = self.lines
+        lines = self.get_document_lines
         content: ArrayString = ArrayString([])
         for k in self.uniq_key_words:
             values = lines.find_text(k)
@@ -256,7 +256,7 @@ class FichaEpi(GenericDocument):
         return self.tb.get_column(ColumnsTable.TEXT).get_next_string('MATR')
 
     def get_date_doc(self) -> str | None:
-        lines = self.lines
+        lines = self.get_document_lines
         _date_line: str = None
         _date_txt: str = None
         for d in self.dias:
