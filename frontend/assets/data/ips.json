@@ -1,5 +1,5 @@
 {
-    "ip_server": "http://192.168.100.80",
+    "ip_server": "http://127.0.0.1:5000",
     "rt_join_pdf": "uploads/pdf/join",
     "rt_split_pdf": "uploads/pdf/split",
     "rt_ocr": "uploads/pdf/ocr",

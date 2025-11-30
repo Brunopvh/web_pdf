@@ -6,7 +6,7 @@ class HomePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final buttonsOptions = [
-      "Organizar PDFs",
+      "Organizar Documentos",
       "Aplicar OCR",
       "Para Excel",
       "Juntar PDFs",
@@ -47,7 +47,7 @@ class HomePage extends StatelessWidget {
                   Navigator.pushNamed(context, '/ocr');
                 } else if (option == "Imagens para PDF") {
                   Navigator.pushNamed(context, '/imgToPdf');
-                } else if (option == "Organizar PDFs") {
+                } else if (option == "Organizar Documentos") {
                   Navigator.pushNamed(context, '/organizar');
 ;
                 }
