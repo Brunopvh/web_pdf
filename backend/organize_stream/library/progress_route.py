@@ -11,6 +11,7 @@ from organize_stream.document import CreateFileNames, ExtractNameInnerData
 from organize_stream.type_utils import (
     FilterData, FilterText, EnumDigitalDoc, DictOriginInfo, DictOutputInfo
 )
+from organize_stream.text_extract import DocumentTextExtract
 from sheet_stream import ListItems
 
 # Define o roteador para as rotas de progresso
@@ -21,6 +22,8 @@ TASK_PROGRESS_STATE: dict[str, dict[str, Any]] = {}
 def create_progress_with_id(task_id: str) -> dict[str, Any]:
     """
         Cria um progresso vazio e adiciona no dicionário global.
+        
+    TASK_PROGRESS_STATE
     """
     new_state = {
         "current": 0,
@@ -35,8 +38,14 @@ def create_progress_with_id(task_id: str) -> dict[str, Any]:
 
 
 def get_id_progress_state(task_id: str) -> dict[str, Any] | None:
-    """Obtém o estado de progresso para um ID de tarefa específico."""
-    return TASK_PROGRESS_STATE.get(task_id)
+    """
+        Obtém o estado de progresso para um ID de tarefa específico.
+    """
+    try:
+        return TASK_PROGRESS_STATE.get(task_id)
+    except Exception as e:
+        print(e)
+        return None
 
 
 # =============== ROTA PROGRESSO ==================
@@ -100,6 +109,57 @@ def thread_images_to_pdfs(images: list[str], task_id: str) -> None:
     except Exception as e:
         current_progress.update({"done": True, "zip_path": None})
         print(f"[ERRO] Worker falhou: {e}")
+
+
+def thread_docs_to_sheet(**kwargs) -> None:
+    """
+        Recebe um dicionário com chaves que apontam para 
+    lista de pdfs e imagens, extrai os textos e converte em planilha excel.
+    """
+    current_progress: dict[str, Any] = get_id_progress_state(kwargs.get("task_id"))
+    image_bytes: list[bytes] = kwargs.get("images")
+    pdf_bytes: list[bytes] = kwargs.get("pdfs")
+    
+    extractor = DocumentTextExtract()
+    extractor.notify_observers = False
+    
+    try:
+        current_progress['total'] = len(image_bytes)
+        for n, image in enumerate(image_bytes):
+            current_progress["current"] = n
+            extractor.add_image(image)
+            
+        current_progress['total'] = len(pdf_bytes)
+        for num, pdf in enumerate(pdf_bytes):
+            current_progress["current"] = num
+            extractor.add_document(pdf)
+            
+    except Exception as e:
+        current_progress.update({"done": True, "zip_path": None})
+        print(f"[ERRO] Falha ao tentar extrair texto dos documentos: {e}")
+        return
+
+    temp_dir: sp.Directory = sp.Directory(tempfile.mkdtemp())
+    temp_dir.mkdir()
+    _output_zip: sp.File = temp_dir.join_file("documentos.zip")
+    try:
+        buff_excel: BytesIO = BytesIO()
+        df = extractor.to_data()
+        df.to_excel(buff_excel, index=False)
+        buff_excel.seek(0)
+        # Salvar em zip
+        buff_zip = BytesIO()
+        with zipfile.ZipFile(buff_zip, "w") as zipf:
+            zipf.writestr('documentos.xlsx', buff_excel.getvalue())
+            
+        # Salvar o zip em disco para download
+        buff_zip.seek(0)
+        _output_zip.path.write_bytes(buff_zip.getvalue())
+        # finalizou
+        current_progress.update({"done": True, "zip_path": _output_zip.absolute()})
+    except Exception as e:
+        current_progress.update({"done": True, "zip_path": None})
+        print(f"[ERRO] Falha ao tentar baixar o arquivo .zip: {e}")
         
     
 def thread_organize_documents(**kwargs: dict[str, Any]) -> None:

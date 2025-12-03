@@ -5,13 +5,12 @@
 from __future__ import annotations
 import os
 import sys
-from fastapi import FastAPI, UploadFile, File
+
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi import UploadFile, File
+from fastapi import UploadFile, File, FastAPI
 from fastapi.responses import JSONResponse
 from fastapi import Form
-import base64
 from typing import Any
 import uuid
 
@@ -39,24 +38,28 @@ FILE_CONF = os.path.join(DIR_ASSETS, 'ips.json')
 sys.path.insert(0, DIR_SERVER_LIBRARY)
 sys.path.insert(0, DIR_MOD_ORGANIZE)
 
-
-from organize_stream.type_utils import (
-    FilterText, FilterData, EnumDigitalDoc
+from organize_stream.library.common.assets import (
+    get_json_info, get_temp_dir, FILE_PATH_ASSETS, AssetsFrontEnd, BuildAssets
 )
+
+# Definir o asset no início para evitar erros de chamadas para este arquivo/objeto.
+FILE_PATH_ASSETS = sp.File(FILE_CONF)
+app_assets: AssetsFrontEnd = BuildAssets().set_dir_assets(sp.Directory(DIR_ASSETS)).build()
+BuildAssets.asset_dir = app_assets.get_dir_assets()
+
+
 from organize_stream.document.create_name import (
-    CreateFileNames, ExtractNameInnerData, ExtractNameInnerText,
     DictFileInfo, DictOriginInfo, DictOutputInfo,
 )
 from sheet_stream import ReadFileSheet, LibSheet
-
-from organize_stream.library.common import (
-    get_json_info, get_temp_dir 
-)
 from organize_stream.library.progress_route import (
-    create_progress_with_id, thread_images_to_pdfs, TASK_PROGRESS_STATE, router as progress_router,
+    create_progress_with_id, thread_images_to_pdfs, 
+    TASK_PROGRESS_STATE, router as progress_router,
     get_id_progress_state, get_json_progress, thread_organize_documents,
     thread_organize_documents_with_sheet,
 )
+from organize_stream.library.app_pages.docs_to_sheet import router_docs_to_sheet
+
 
 TESS_FILE: str | None = None
 if sp.KERNEL_TYPE == 'Linux':
@@ -90,7 +93,8 @@ if route_info is None:
 print(route_info)
 
 # =============== INCLUIR ROTAS MODULARIZADAS ==================
-app.include_router(progress_router, prefix="") # Inclui o roteador de progresso
+app.include_router(progress_router, prefix="")
+app.include_router(router_docs_to_sheet, prefix="")
 
 
 # =============== ROTA DOWNLOAD ==================

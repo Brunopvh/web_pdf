@@ -6,6 +6,7 @@
     "rt_convert_pdf": "uploads/pdf/join",
     "rt_imgs_to_pdf": "uploads/pdf/img_to_pdf",
     "rt_process_docs": "process_documents",
-    "rt_process_pattern": "process_pattern"
+    "rt_process_pattern": "process_pattern",
+    "rt_docs_to_sheet": "uploads/sheet"
 }
  

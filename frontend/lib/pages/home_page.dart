@@ -49,9 +49,9 @@ class HomePage extends StatelessWidget {
                   Navigator.pushNamed(context, '/imgToPdf');
                 } else if (option == "Organizar Documentos") {
                   Navigator.pushNamed(context, '/organizar');
-;
+                } else if (option == "Para Excel") {
+                  Navigator.pushNamed(context, '/docsToSheet');
                 }
-
                 // As outras opções ficam sem ação por enquanto
               },
               child: Text(

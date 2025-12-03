@@ -6,6 +6,7 @@ import 'package:web_pdf/pages/pdfs/pdfs_para_img.dart';
 import 'package:web_pdf/pages/ocr/image_ocr.dart';
 import 'package:web_pdf/pages/imagens/imagens_para_pdf.dart';
 import 'package:web_pdf/pages/organize.dart';
+import 'package:web_pdf/pages/excel/excel.dart';
 
 // Versão Web
 void main() {
@@ -31,6 +32,7 @@ class MyApp extends StatelessWidget {
           '/ocr': (context) => const OcrPage(), 
           '/imgToPdf': (context) => const ImagenToPdfPage(),
           '/organizar': (context) => const OrganizePage(),
+          '/docsToSheet': (context) => const DocumentsToSheetPage(),
         },
     );
   }
