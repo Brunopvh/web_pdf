@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from typing import Any
 from io import BytesIO
 import tempfile
+import pandas as pd
 import convert_stream as cs
 import zipfile
 import os
@@ -12,7 +13,7 @@ from organize_stream.type_utils import (
     FilterData, FilterText, EnumDigitalDoc, DictOriginInfo, DictOutputInfo
 )
 from organize_stream.text_extract import DocumentTextExtract
-from sheet_stream import ListItems
+from sheet_stream import ListItems, TableDocuments, ColumnsTable, ListColumnBody
 
 # Define o roteador para as rotas de progresso
 router = APIRouter()
@@ -117,36 +118,53 @@ def thread_docs_to_sheet(**kwargs) -> None:
     lista de pdfs e imagens, extrai os textos e converte em planilha excel.
     """
     current_progress: dict[str, Any] = get_id_progress_state(kwargs.get("task_id"))
-    image_bytes: list[bytes] = kwargs.get("images")
-    pdf_bytes: list[bytes] = kwargs.get("pdfs")
-    
+    files_dict: ListItems[DictOriginInfo] = kwargs.get("documents")
+    values_documents: ListItems[pd.DataFrame] = ListItems()    
+    current_progress['total'] = len(files_dict)
     extractor = DocumentTextExtract()
     extractor.notify_observers = False
     
     try:
-        current_progress['total'] = len(image_bytes)
-        for n, image in enumerate(image_bytes):
+        image: DictOriginInfo
+        for n, image in enumerate(files_dict):
             current_progress["current"] = n
-            extractor.add_image(image)
+            tb: TableDocuments
+            if image.get_extension() in sp.LibraryDocs.IMAGE.value:
+                tb = extractor.read_image(image.get_file_bytes())
+            elif image.get_extension() in sp.LibraryDocs.PDF.value:
+                tb = extractor.read_document(image.get_file_bytes())
+            else:
+                continue
             
-        current_progress['total'] = len(pdf_bytes)
-        for num, pdf in enumerate(pdf_bytes):
-            current_progress["current"] = num
-            extractor.add_document(pdf)
+            if tb is None:
+                continue
+            if tb.length == 0:
+                continue
+            num = tb.get_column(ColumnsTable.TEXT.value).length
+            tb.set_column(ListColumnBody(ColumnsTable.FILETYPE, [image.get_extension()] * num))
+            tb.set_column(ListColumnBody(ColumnsTable.FILE_NAME, [image.get_name()] * num))
+            values_documents.append(tb.to_data())
             
     except Exception as e:
         current_progress.update({"done": True, "zip_path": None})
         print(f"[ERRO] Falha ao tentar extrair texto dos documentos: {e}")
         return
+    else:
+        if values_documents.length == 0:
+            current_progress.update({"done": True, "zip_path": None})
+            print(f"[ERRO] Falha ao tentar extrair texto dos documentos")
+            return
 
     temp_dir: sp.Directory = sp.Directory(tempfile.mkdtemp())
     temp_dir.mkdir()
     _output_zip: sp.File = temp_dir.join_file("documentos.zip")
     try:
         buff_excel: BytesIO = BytesIO()
-        df = extractor.to_data()
+        df = pd.concat(values_documents)
+        df = df[[ColumnsTable.FILETYPE, ColumnsTable.FILE_NAME, ColumnsTable.TEXT,]]
         df.to_excel(buff_excel, index=False)
         buff_excel.seek(0)
+        
         # Salvar em zip
         buff_zip = BytesIO()
         with zipfile.ZipFile(buff_zip, "w") as zipf:

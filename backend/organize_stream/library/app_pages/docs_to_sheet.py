@@ -27,26 +27,29 @@ router_docs_to_sheet = APIRouter()
 # =============== CONVERTER DOCUMENTOS EM PLANILHA ===============
 @router_docs_to_sheet.post(f"/{jsonAssets['rt_docs_to_sheet']}")
 async def docs_to_sheet(files: list[UploadFile] = File(...)):
-    # 1. Gera um ID único para esta tarefa
+    # Gera um ID único para esta tarefa
     task_id = str(uuid.uuid4())
-    # 2. Inicializa o estado de progresso para este ID
+    # Inicializa o estado de progresso para este ID
     create_progress_with_id(task_id)
     current_progress: dict[str, Any] = get_id_progress_state(task_id)
+    input_files_document: ListItems[DictOriginInfo] = ListItems()
+    
+    for document in files:
+        if document is None:
+            continue
 
-    extension_images = ListString(['.png', '.jpg', '.jpeg'])
-    extension_pdfs = ListString(['.pdf'])
-    bytes_image: ListItems[bytes] = ListItems()
-    bytes_pdfs: ListItems[bytes] = ListItems()
-
-    # Salvar os uploads em arquivos temporários
-    for current_file in files:
-        content: bytes = await current_file.read()
+        file_name = document.filename
+        if file_name is None:
+            continue
+        
         try:
-            extension = '.' + current_file.filename.split('.')[-1]
-            if extension_images.contains(extension, case=True, iqual=True):
-                bytes_image.append(content)
-            elif extension_pdfs.contains(extension, case=True, iqual=True):
-                bytes_pdfs.append(content)
+            current = DictOriginInfo()
+            extension_file = f".{file_name.split('.')[-1]}"
+            current.set_name(file_name.replace(extension_file, ''))
+            current.set_filename_with_extension(file_name)
+            current.set_extension(extension_file)
+            current.set_file_bytes(await document.read())
+            input_files_document.append(current)
         except Exception as err:
             current_progress.update({"done": True, "zip_path": None})
             error_message = f"Falha ao ler ou classificar os arquivos: {err}"
@@ -55,8 +58,7 @@ async def docs_to_sheet(files: list[UploadFile] = File(...)):
 
     values_documents: dict[str, Any] = {
         'task_id': task_id,
-        'images': bytes_image,
-        'pdfs': bytes_pdfs,
+        'documents': input_files_document,
     }
     thread = threading.Thread(target=thread_docs_to_sheet, kwargs=values_documents)
     thread.start()
