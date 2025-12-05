@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from typing import Any
 
 # Define o roteador para as rotas de progresso
-router = APIRouter()
+router_progress = APIRouter()
 TASK_PROGRESS_STATE: dict[str, dict[str, Any]] = {}
 
 
@@ -37,7 +37,7 @@ def get_id_progress_state(task_id: str) -> dict[str, Any] | None:
 
 
 # =============== ROTA PROGRESSO ==================
-@router.get("/progress/{task_id}")
+@router_progress.get("/progress/{task_id}")
 async def get_json_progress(task_id: str) -> JSONResponse:
     """
         Retorna o status do processamento para o frontend.

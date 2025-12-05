@@ -432,37 +432,8 @@ class _OrganizePageState extends State<OrganizePage> {
                   ),
                 ),
               ),
-            const SizedBox(height: 20),
-            /*
-            // ================== NOVO: Dropdown de Tipos de Documento ==================
-            Container(
-              margin: const EdgeInsets.symmetric(vertical: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.shade400),
-                borderRadius: BorderRadius.circular(5),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  isExpanded: true,
-                  value: selectedDocumentType,
-                  hint: const Text("Selecione o Tipo de Documento"),
-                  icon: const Icon(Icons.arrow_drop_down),
-                  items: documentOptions.map((String value) {
-                    return DropdownMenuItem<String>(
-                      value: value,
-                      child: Text(value),
-                    );
-                  }).toList(),
-                  onChanged: (String? newValue) {
-                    setState(() {
-                      selectedDocumentType = newValue!;
-                    });
-                  },
-                ),
-              ),
-            ),
-            */
+            //const SizedBox(height: 20),
+            
             const SizedBox(height: 20),
             // Se o XLSX não foi selecionado, o padrão de texto é necessário.
             if (xlsxFile == null)
@@ -536,17 +507,23 @@ class _OrganizePageState extends State<OrganizePage> {
               ),
             ),
             
-            // NOVO: Botão de Download (visível apenas após o processamento, 
-            // se o backend usasse task_id e polling).
             if (canDownload) ...[
                 const SizedBox(height: 20),
-                ElevatedButton.icon(
-                  onPressed: _downloadFile,
-                  icon: const Icon(Icons.download),
-                  label: const Text('Baixar Resultado'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.deepOrange,
-                    minimumSize: const Size(double.infinity, 50),
+                Center( // 💡 Centraliza o botão de Download
+                  child: ElevatedButton.icon(
+                    onPressed: _downloadFile,
+                    icon: const Icon(Icons.download, color: Colors.black54), // Ícone preto
+                    label: const Text(
+                      'Baixar Resultado',
+                      style: TextStyle(color: Colors.black87), // Texto preto
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white, // Fundo branco
+                      foregroundColor: Colors.teal, // Cor de destaque (igual ao processar)
+                      side: const BorderSide(color: Colors.grey, width: 1), 
+                      minimumSize: const Size(250, 40), // Tamanho reduzido (igual ao processar)
+                      elevation: 2,
+                    ),
                   ),
                 ),
             ],

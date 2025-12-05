@@ -39,7 +39,7 @@ sys.path.insert(0, DIR_SERVER_LIBRARY)
 sys.path.insert(0, DIR_MOD_ORGANIZE)
 
 from organize_stream.library.common.assets import (
-    get_json_info, get_temp_dir, FILE_PATH_ASSETS, AssetsFrontEnd, BuildAssets
+    get_json_info, AssetsFrontEnd, BuildAssets
 )
 
 # Definir o asset no início para evitar erros de chamadas para este arquivo/objeto.
@@ -47,18 +47,12 @@ FILE_PATH_ASSETS = sp.File(FILE_CONF)
 app_assets: AssetsFrontEnd = BuildAssets().set_dir_assets(sp.Directory(DIR_ASSETS)).build()
 BuildAssets.asset_dir = app_assets.get_dir_assets()
 
-
-from organize_stream.document.create_name import (
-    DictFileInfo, DictOriginInfo, DictOutputInfo,
+from organize_stream.library.common import (
+    TASK_PROGRESS_STATE, router_progress, get_id_progress_state
 )
-from sheet_stream import ReadFileSheet, LibSheet
-from organize_stream.library.progress_route import (
-    create_progress_with_id, thread_images_to_pdfs, 
-    TASK_PROGRESS_STATE, router as progress_router,
-    get_id_progress_state, get_json_progress, thread_organize_documents,
-    thread_organize_documents_with_sheet,
+from organize_stream.library.app_pages import (
+    router_docs_to_sheet, router_img_to_pdf, router_rename
 )
-from organize_stream.library.app_pages.docs_to_sheet import router_docs_to_sheet
 
 
 TESS_FILE: str | None = None
@@ -93,8 +87,10 @@ if route_info is None:
 print(route_info)
 
 # =============== INCLUIR ROTAS MODULARIZADAS ==================
-app.include_router(progress_router, prefix="")
+app.include_router(router_progress, prefix="")
 app.include_router(router_docs_to_sheet, prefix="")
+app.include_router(router_img_to_pdf, prefix="")
+app.include_router(router_rename, prefix="")
 
 
 # =============== ROTA DOWNLOAD ==================
@@ -238,175 +234,6 @@ async def join_pdfs(files: list[UploadFile] = File(...)):
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename={}".format(output_filename)}
     )
-
-
-# 05 =============== CONVERTER IMAGENS EM PDF ===============
-@app.post(f"/{route_info['rt_imgs_to_pdf']}")
-async def process_images(files: list[UploadFile] = File(...)):
-    # 1. Gera um ID único para esta tarefa
-    task_id = str(uuid.uuid4())
-    # 2. Inicializa o estado de progresso para este ID
-    create_progress_with_id(task_id)
-    
-    image_files: list[str] = []
-
-    # Salvar os uploads em arquivos temporários
-    for upload in files:
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-        content: bytes = await upload.read()
-        temp_file.write(content)
-        temp_file.close()
-        image_files.append(temp_file.name)
-    # Rodar conversão em thread
-    thread = threading.Thread(target=thread_images_to_pdfs, args=(image_files, task_id))
-    thread.start()
-    return {"message": "Processamento iniciado", "task_id": task_id}
-
-
-# ===================== ROTA UNIFICADA PROCESSAR DOCUMENTOS =====================
-
-@app.post(f"/{route_info['rt_process_docs']}")
-async def organize_documents_with_sheet(
-            pdfs: list[UploadFile] = File(default=[]),
-            images: list[UploadFile] = File(default=[]),
-            file_sheet: UploadFile = File(default=None),
-            column_name: str = Form(default=None),  
-        ):
-    """
-    Rota unificada para processar PDFs, imagens e renomear com base em uma planilha Excel.
-    """
-    task_id = str(uuid.uuid4())
-    progress_data = create_progress_with_id(task_id)
-
-    temp_dir: sp.Directory = sp.Directory(tempfile.mkdtemp())
-    progress_data.update({"current": 0, "total": 0, "done": False, "zip_path": None})
-    list_files: list[UploadFile] = []
-    list_files.extend(pdfs)
-    list_files.extend(images)
-    progress_data.update({"current": 0, "total": 0, "done": False, "zip_path": None})
-    total_files = len(list_files)
-    progress_data['total'] = total_files
-    src_df: pd.DataFrame
-    
-    # Salvar todos os arquivos recebidos
-    try:
-        sheet_bytes: bytes = await file_sheet.read()
-        src_df: pd.DataFrame = ReadFileSheet(io.BytesIO(sheet_bytes), lib_sheet=LibSheet.EXCEL).get_dataframe()
-        for current_file in list_files:
-            if current_file is None:
-                continue
-            
-            file_name = current_file.filename
-            if file_name is None:
-                continue
-            
-            content: bytes = await current_file.read()
-            file_path: str = temp_dir.join_file(file_name).absolute()
-            with open(file_path, "wb") as f:
-                f.write(content)
-    except Exception as e:
-        progress_data.update({"done": True, "zip_path": None})
-        print(f"[ERRO] Falha ao processar documentos: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
-    
-    # Enviar os arquivos para processamento
-    """
-    task_id: str: id do processo.
-    df: pd.Dataframe: aponta para um dataframe com dados base para o filtro de dados
-    col_find: str: coluna onde o texto deve ser filtrado
-    col_new_name: str: coluna que aponta para o novo nome de arquivo.
-    files: list[File]: aponta para uma lista de arquivos.
-    output_dir: Directory: diretório destino dos arquivos.
-    """
-    input_files = sp.InputFiles(temp_dir)
-    files_path = input_files.pdfs
-    files_path.extend(input_files.images)
-    
-    send_args: dict[str, object] = {
-        'task_id': task_id,
-        'df': src_df,
-        'col_find': column_name,
-        'col_new_name': column_name,
-        'files': files_path,
-        'output_dir': temp_dir,
-    }
-    thread = threading.Thread(target=thread_organize_documents_with_sheet, kwargs=send_args)
-    thread.start()
-    return {"message": "Processamento iniciado", "task_id": task_id}
-    
-    """
-    except Exception as e:
-        progress_data.update({"done": True, "zip_path": None})
-        print(f"[ERRO] Falha ao tentar renomear aquivos: {e}")
-        return JSONResponse({"error": str(e)}, status_code=500)
-    else:
-        # Retornar o ZIP finalizado
-        return StreamingResponse(
-            zip_buffer,
-            media_type="application/zip",
-            headers={"Content-Disposition": "attachment; filename=filtrado_com_tabela.zip"},
-        )
-    """
-
-
-@app.post(f"/{route_info['rt_process_pattern']}")
-async def organize_documents_with_pattern(
-            pdfs: list[UploadFile] = File(default=[]),
-            images: list[UploadFile] = File(default=[]),
-            pattern: str = Form(default=None), 
-            digitalized_type: str = Form(default=None),
-        ):
-    """
-    Rota alternativa usada quando o usuário digita um padrão de texto
-    ao invés de enviar planilha XLSX e nome de coluna.
-    Retorna um ZIP com os arquivos processados.
-    
-    :param document_type: CARTA/EPI/GERNÉRICO
-    """
-    if not pattern:
-        if not digitalized_type:
-            e = "O parâmetro 'pattern' é obrigatório para documentos genéricos."
-            print()
-            return JSONResponse({"error": str(e)}, status_code=500)
-
-    task_id = str(uuid.uuid4())
-    progress_data = create_progress_with_id(task_id)
-    progress_data.update({"current": 0, "total": 0, "done": False, "zip_path": None})
-    total_files = len(images) + len(pdfs)
-    progress_data['total'] = total_files
-    
-    pdfs.extend(images)
-    images.clear()
-    input_files_document: ListItems[DictOriginInfo] = ListItems()
-    try:
-        for document in pdfs:
-            if document is None:
-                continue
-
-            file_name = document.filename
-            if file_name is None:
-                continue
-            current = DictOriginInfo()
-            extension_file = f".{file_name.split('.')[-1]}"
-            current.set_name(file_name.replace(extension_file, ''))
-            current.set_filename_with_extension(file_name)
-            current.set_extension(extension_file)
-            current.set_file_bytes(await document.read())
-            input_files_document.append(current)
-    except Exception as e:
-        print(e)
-        return {"message": "Falha ao tentar ler os arquivos", "task_id": task_id}
-        
-    send_args: dict[str, object] = {
-        'task_id': task_id,
-        'pdfs': input_files_document,
-        'images': ListItems(),
-        'pattern': pattern,
-        'digitalized_type': digitalized_type,
-    }
-    thread = threading.Thread(target=thread_organize_documents, kwargs=send_args)
-    thread.start()
-    return {"message": "Processamento iniciado", "task_id": task_id}
 
 
 
